@@ -17,6 +17,16 @@ BIN       := $(BUILD)/bigfoston-shell
 VERSION   := 0.6.5
 
 LVGL_DIR  := third_party/lvgl
+# LVGL e nanosvg não vão no git: num checkout novo, baixa os dois (SHA-256 conferido) antes de
+# listar as fontes, senão a lista do LVGL sai vazia
+ifeq ($(filter clean,$(MAKECMDGOALS)),)
+  ifeq ($(wildcard $(LVGL_DIR)/lvgl.h),)
+    $(if $(shell tools/fetch_lvgl.sh >&2 && echo ok),,$(error falhou: tools/fetch_lvgl.sh))
+  endif
+  ifeq ($(wildcard third_party/nanosvg/nanosvg.h),)
+    $(if $(shell tools/fetch_nanosvg.sh >&2 && echo ok),,$(error falhou: tools/fetch_nanosvg.sh))
+  endif
+endif
 LVGL_SRCS := $(shell find $(LVGL_DIR)/src -name '*.c')
 APP_SRCS  := main.c $(wildcard core/*.c) $(wildcard screens/*.c) $(wildcard widgets/*.c)
 # Big GPS engine (biggps/README.md): hot loops, built with -O2 even on the target
