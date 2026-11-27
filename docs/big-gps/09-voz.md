@@ -8,7 +8,7 @@ Código: [src/ui/core/voice.c](../../src/ui/core/voice.c) (fala), agendamento em
 [src/ui/screens/scr_map.c](../../src/ui/screens/scr_map.c) (`announce`), textos em
 [src/ui/biggps/bgnav.c](../../src/ui/biggps/bgnav.c) (`bgn_text`), pacote
 [firmware/buildroot/package/bigfoston-espeak-ng](../../firmware/buildroot/package/bigfoston-espeak-ng/),
-dados [tools/big-gps/make-voice-data.sh](../../tools/big-gps/make-voice-data.sh).
+dados (histórico: o antigo `make-voice-data.sh`, removido em 30e307f; hoje a voz é a Piper Faber, gerada por [tools/big-gps/make-faber-voice.py](../../tools/big-gps/make-faber-voice.py)).
 
 ## Escolha (medida no aparelho)
 

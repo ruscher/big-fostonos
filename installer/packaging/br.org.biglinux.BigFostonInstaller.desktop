@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=BigFoston OS Installer
+Name[pt_BR]=Instalador do BigFoston OS
+GenericName=BigFoston OS Installer
+Comment=Install, update and restore BigFoston OS on the FOSTON FS-707DC GPS
+Comment[pt_BR]=Instale, atualize e restaure o BigFoston OS no GPS FOSTON FS-707DC
+Exec=bigfoston-installer
+Icon=br.org.biglinux.BigFostonInstaller
+Terminal=false
+Categories=System;GTK;
+Keywords=FOSTON;GPS;Linux;SD;WinCE;BigLinux;
+StartupNotify=true

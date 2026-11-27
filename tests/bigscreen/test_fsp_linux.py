@@ -19,13 +19,17 @@ import time
 import tty
 import unittest
 
-import numpy as np
-
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# o lado do PC é o Big Screen Monitor Display (outro projeto): sem ele ao lado deste repositório
+# (ou em $BSMD_SRC), o teste de interoperabilidade é pulado
 BSMD = os.environ.get("BSMD_SRC", os.path.join(os.path.dirname(ROOT), "big-screen-monitor-display",
                                                "usr", "share", "big-screen-monitor-display"))
 sys.path.insert(0, os.path.join(BSMD, "bsmd", "displays", "foston"))
-import protocol as fsp  # noqa: E402
+try:
+    import numpy as np
+    import protocol as fsp  # noqa: E402
+except ImportError as e:
+    raise unittest.SkipTest(f"precisa do Big Screen Monitor Display e do numpy ({e})") from None
 
 CLIENT_DIR = os.path.join(ROOT, "src", "bigscreen")
 CLIENT = os.path.join(CLIENT_DIR, "build", "bigfoston-bigscreen")

@@ -2,9 +2,12 @@
 """Confere se cada função que o agente importa do COREDLL existe no coredll.dll do FOSTON.
 
 O Windows CE do aparelho não abre (e não diz nada) um .exe que importa uma função ausente.
-As exportações vêm do coredll.dll do backup da NAND (seções extraídas em <rva>.bin).
+As exportações vêm de tools/coredll-exports.txt (a lista de nomes tirada do coredll.dll da ROM
+do aparelho) ou, com um backup da NAND, direto do coredll.dll (seções extraídas em <rva>.bin).
 
+  check_imports.py OBJDUMP build/bfagent.exe tools/coredll-exports.txt
   check_imports.py OBJDUMP build/bfagent.exe backup/.../mod/coredll.dll
+  check_imports.py --dump backup/.../mod/coredll.dll > tools/coredll-exports.txt
 Sai com erro se faltar alguma. SPDX-License-Identifier: GPL-3.0-or-later
 """
 import os
@@ -18,6 +21,9 @@ KNOWN_BAD = {"_vsnwprintf"}
 
 
 def exports(mod_dir):
+    if os.path.isfile(mod_dir):            # a lista de nomes (um por linha, # comenta)
+        with open(mod_dir, encoding="utf-8") as f:
+            return {ln.strip() for ln in f if ln.strip() and not ln.startswith("#")}
     secs = []
     for f in os.listdir(mod_dir):
         if f.endswith(".bin"):
@@ -62,6 +68,11 @@ def imports(objdump, exe):
 
 
 def main():
+    if sys.argv[1:2] == ["--dump"]:
+        print("# Funções que o coredll.dll do FOSTON FS-707DC (Windows CE 5.0 build 1400) exporta pelo nome.")
+        print("# Extraído da ROM do aparelho por tools/check_imports.py --dump; usado por make imports.")
+        print("".join(n + "\n" for n in sorted(exports(sys.argv[2])) if n), end="")
+        return
     objdump, exe, mod = sys.argv[1:4]
     have, need = exports(mod), imports(objdump, exe)
     missing = sorted(n for n in need if n not in have or n in KNOWN_BAD)

@@ -1,0 +1,37 @@
+# Maintainer: BigLinux / BigFoston <https://github.com/ruscher/big-fostonos>
+# BigFoston OS Installer: prepara o cartão SD do FOSTON FS-707DC com o BigFoston OS.
+#   makepkg -si          (baixa o código do GitHub, roda os testes e instala)
+pkgname=bigfoston-installer
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Instalador, atualizador e ferramenta de recuperação do BigFoston OS (FOSTON FS-707DC)"
+arch=('any')
+url="https://github.com/ruscher/big-fostonos"
+license=('GPL-3.0-or-later')
+depends=('python' 'python-gobject' 'glib2' 'gtk4' 'libadwaita' 'udisks2' 'polkit' 'hicolor-icon-theme')
+makedepends=('git')
+checkdepends=('python-pytest')
+source=("big-fostonos::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    sed -n 's/^__version__ = "\(.*\)"/\1/p' big-fostonos/installer/bigfoston_installer/__init__.py
+}
+
+check() {
+    cd big-fostonos/installer
+    python3 -m pytest -q -p no:cacheprovider tests/test_core.py
+}
+
+package() {
+    cd big-fostonos/installer
+    install -d "$pkgdir/usr/lib/bigfoston-installer"
+    cp -r bigfoston_installer "$pkgdir/usr/lib/bigfoston-installer/"
+    find "$pkgdir/usr/lib/bigfoston-installer" -name __pycache__ -prune -exec rm -rf {} +
+    install -Dm755 bigfoston-installer "$pkgdir/usr/bin/bigfoston-installer"
+    install -Dm644 packaging/br.org.biglinux.BigFostonInstaller.desktop \
+        "$pkgdir/usr/share/applications/br.org.biglinux.BigFostonInstaller.desktop"
+    install -Dm644 packaging/br.org.biglinux.BigFostonInstaller.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/br.org.biglinux.BigFostonInstaller.svg"
+    install -Dm644 ../LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
