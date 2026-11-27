@@ -1,0 +1,28 @@
+BigFoston: lv_obj_add_flag/lv_obj_remove_flag sem efeito quando os flags não mudam
+O LVGL 9.2 invalidava o objeto e marcava o layout do pai como sujo a cada
+lv_obj_remove_flag(HIDDEN) num objeto já visível. A barra de cima faz isso a cada segundo
+(data, FM) e as telas a cada tique: redesenho e flex refeitos sem nada mudar
+(docs/modos-tv-gps/03-tv-offline-decoder-e-fluidez.md).
+
+--- a/src/core/lv_obj.c	2026-11-27 14:55:42.061730003 -0300
++++ b/src/core/lv_obj.c	2026-11-27 14:55:42.063031070 -0300
+@@ -232,6 +232,9 @@
+ {
+     LV_ASSERT_OBJ(obj, MY_CLASS);
+ 
++    /*BigFoston: nothing changes, nothing to redraw or lay out again*/
++    if((obj->flags & f) == f) return;
++
+     bool was_on_layout = lv_obj_is_layout_positioned(obj);
+ 
+     /* We must invalidate the area occupied by the object before we hide it as calls to invalidate hidden objects are ignored */
+@@ -269,6 +272,9 @@
+ {
+     LV_ASSERT_OBJ(obj, MY_CLASS);
+ 
++    /*BigFoston: nothing changes, nothing to redraw or lay out again*/
++    if((obj->flags & f) == 0) return;
++
+     bool was_on_layout = lv_obj_is_layout_positioned(obj);
+     if(f & LV_OBJ_FLAG_SCROLLABLE) {
+         lv_area_t hor_area, ver_area;

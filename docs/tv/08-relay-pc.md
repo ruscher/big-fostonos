@@ -152,6 +152,16 @@ Com o PC conectado, a gravação (`-p`) também vai para ele. O envio tem duas f
   parou de mandar som há 300 ms. Antes ele ficava preso e a gravação não chegava ao fim.
 - Se o PC sai no meio, a gravação recomeça aqui.
 
+## Conexão morta: o relay não voltava (27/11/2026)
+
+Com o FOSTON reiniciado ou o cabo arrancado no meio da TV, o relay do PC ficava num `read()` de
+uma conexão que não existia mais. Encontrado em `ESTAB` havia 9 h, com a TV decodificando no
+FOSTON e o PC ao lado. Agora a conexão tem keepalive (3 s + 3×1 s) e `TCP_USER_TIMEOUT` de 6 s:
+a sessão morta cai e o relay volta a tentar. Testado derrubando a rede USB por 15 s com a TV
+tocando: reconectou sozinho, `relay=1`, 0 cortes. Sem PC no cabo (`/sys/class/udc/*/state`
+diferente de `configured`), o `bftvd` não espera mais 1,5 s por ele a cada canal. Detalhes em
+[../modos-tv-gps/03](../modos-tv-gps/03-tv-offline-decoder-e-fluidez.md).
+
 ## Segurança e falhas do PC
 
 - O `bftvd` só escuta no endereço da rede USB (192.168.7.2) e só aceita conexão vinda do PC

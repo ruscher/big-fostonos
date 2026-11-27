@@ -20,6 +20,7 @@ X4 funcionassem.
 | 4 | [Internet pelo celular](04-internet-pelo-celular.md) | Bluetooth PAN (tethering) com DHCP e DNS | **FUNCIONANDO NO APARELHO** |
 | 5 | [Pareamento do celular](05-pareamento-celular.md) | por que o POCO pedia o código toda vez e o que mudou | PARCIAL: correções no aparelho, captura HCI em andamento |
 | 6 | [Medidas e testes](06-medidas-e-testes.md) | CPU por processo, roteiros, comandos | — |
+| 7 | [Modos TV e GPS](../modos-tv-gps/00-visao-geral.md) | plano de eficiência, TV sem travar, etiqueta sempre visível, Big GPS em 10 s | **FUNCIONANDO NO APARELHO** (27/11) |
 
 ## Em números
 

@@ -17,6 +17,16 @@ Com a TV aberta, medido no aparelho:
 - o `bftvd` fica com nice −10 e a interface com −5;
 - a etiqueta "Performance" não aparece por cima da imagem.
 
+> **Atualizado em 27/11/2026.** A TV agora liga o **modo TV**
+> ([../modos-tv-gps/02](../modos-tv-gps/02-sistema-performance-energia-eficiencia.md)):
+> - o telefone também só pausa sem o celular conectado;
+> - a etiqueta "Modo performance" aparece **por cima do vídeo** (o `bftvd` a mistura em cada
+>   quadro), em vez de sumir;
+> - o `bftvd` fica protegido do OOM.
+>
+> A etiqueta passou a ficar à mostra enquanto o modo estiver ligado, por qualquer motivo
+> ([../modos-tv-gps/05](../modos-tv-gps/05-etiqueta-flutuante-e-polimento-uxui.md)).
+
 ## Novidades no que ele faz
 
 - **Papel de parede:** a opção "Tirar o papel de parede enquanto ligado" (ligada de fábrica)

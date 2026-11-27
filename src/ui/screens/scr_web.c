@@ -473,12 +473,15 @@ static void fs_direct_set(bool on)
     }
 }
 
-static bool layer_clear(lv_obj_t *layer)            /* nenhum objeto visível além da imagem */
+/* nenhum objeto visível além da imagem (a etiqueta do modo não conta: o vídeo direto a mistura
+ * em cada quadro, src/ui/core/fbmark.h) */
+static bool layer_clear(lv_obj_t *layer)
 {
     uint32_t n = lv_obj_get_child_count(layer);
+    lv_obj_t *tag = perfui_tag_obj();
     for(uint32_t i = 0; i < n; i++) {
         lv_obj_t *c = lv_obj_get_child(layer, (int32_t)i);
-        if(c != fs_img && c != fs_btn && !lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) return false;
+        if(c != fs_img && c != fs_btn && c != tag && !lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) return false;
     }
     return true;
 }
@@ -568,7 +571,6 @@ static void fs_enter(void)
     bf_label(fs_btn, tr(S_WEB_FS_EXIT), BF_FONT_S, lv_color_white());
     lv_obj_add_flag(fs_btn, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(fs_btn, fs_exit_click, LV_EVENT_CLICKED, NULL);
-    perfui_tag_hide(true);                           /* nada por cima do vídeo */
     fs_btn_show();
     fs_watch = lv_timer_create(fs_watch_tick, 250, NULL);
     /* vídeo em meia resolução (ampliado aqui): 4x menos dados para o cabo e para o ARM */
@@ -584,7 +586,6 @@ static void fs_leave(bool tell_page)
     lv_obj_delete(fs_btn);
     lv_obj_delete(fs_img);
     fs_img = fs_btn = NULL;
-    perfui_tag_hide(false);
     dragging = false;
     webremote_resize(BF_SCREEN_W, ph);
     if(page && remote_on) lv_image_set_src(page, webremote_image());
@@ -1659,7 +1660,6 @@ static void create(lv_obj_t *parent, int arg)
     lv_obj_add_flag(scroll_ind, LV_OBJ_FLAG_HIDDEN);
 
     scroll_t = lv_timer_create(scroll_tick, 30, NULL);
-    perfui_tag_offset(TB_H);                          /* a etiqueta não tapa o Voltar do navegador */
     remote_on = false;
     webremote_set_start_url(last_url);
     if(settings()->web_pc) webremote_listen(BF_SCREEN_W, ph, on_remote, NULL);
@@ -1690,8 +1690,6 @@ static void destroy(void)
     webdl_set_listener(NULL, NULL);
     fs_leave(false);
     perfui_video_gone();                              /* fora do Internet: o vídeo acabou */
-    perfui_tag_hide(false);
-    perfui_tag_offset(0);
     webremote_stop();
     remote_on = false;
     engine_stop();                                    /* a RAM volta para o resto do sistema */

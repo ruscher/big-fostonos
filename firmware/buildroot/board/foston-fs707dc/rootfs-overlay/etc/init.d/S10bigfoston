@@ -14,6 +14,9 @@ start)
         while :; do
             sleep 10
             n=$((n + 10))
+            # modos TV e GPS do shell (docs/modos-tv-gps): o relatório pula a vez. Ele dispara
+            # ~6 processos a cada 10 s, 1,5 % da CPU medido no aparelho, que vão para o vídeo
+            [ -e /run/bigfoston-quiet ] && continue
             udc=$(cat /sys/class/udc/*/state 2>/dev/null)
             usbirq=$(grep -m1 musb /proc/interrupts | tr -s ' ' | cut -d' ' -f3)
             say "alive ${n}s load $(cut -d' ' -f1 /proc/loadavg) | usb ${udc:-none} irqs ${usbirq:-0}"

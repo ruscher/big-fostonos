@@ -22,6 +22,21 @@
 #define CTL_PATH CTL_DIR "/ctl"
 
 static int fd = -1, keep = -1;
+
+/* "tap X Y": um toque sintético por um ponteiro virtual do LVGL (o mesmo caminho de um toque
+ * real: PRESSED, CLICKED, RELEASED), para testar fluxos no aparelho por SSH */
+static lv_indev_t *vtap;
+static int32_t vtap_x, vtap_y;
+static int vtap_left;                   /* leituras ainda apertado */
+
+static void vtap_read(lv_indev_t *in, lv_indev_data_t *d)
+{
+    (void)in;
+    d->point.x = vtap_x;
+    d->point.y = vtap_y;
+    d->state = vtap_left > 0 ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+    if(vtap_left > 0) vtap_left--;
+}
 static char buf[1200];
 static size_t len;
 
@@ -75,6 +90,9 @@ static void command(char *l)
         perf_reset();
     }
     else if(!strcmp(l, "app map")) nav_go(SCR_MAP, 0);
+    else if(!strncmp(l, "mapdemo ", 8)) {          /* passos de teste do Big GPS (scr_map_demo) */
+        if(nav_current().scr == SCR_MAP) scr_map_demo(atoi(l + 8));
+    }
     else if(!strcmp(l, "app gps")) nav_go(SCR_GPS, 0);
     else if(!strcmp(l, "app phone")) nav_go(SCR_PHONE, 0);
     else if(!strcmp(l, "app bluetooth")) nav_go(SCR_BLUETOOTH, 0);
@@ -84,6 +102,10 @@ static void command(char *l)
     else if(!strncmp(l, "key ", 4)) {             /* tecla crua do teclado físico: "key 30 1" */
         int code = 0, val = 0;
         if(sscanf(l + 4, "%d %d", &code, &val) == 2 && code > 0 && code < 0x300) hwkbd_feed((uint16_t)code, val);
+    }
+    else if(!strncmp(l, "tap ", 4)) {
+        int x, y;
+        if(sscanf(l + 4, "%d %d", &x, &y) == 2 && vtap) { vtap_x = x; vtap_y = y; vtap_left = 3; }
     }
     else if(!strcmp(l, "perf on")) perfui_manual(true);
     else if(!strcmp(l, "perf off")) perfui_disable();
@@ -124,4 +146,7 @@ void ctl_init(void)
     keep = open(CTL_PATH, O_WRONLY | O_NONBLOCK | O_CLOEXEC);   /* sem EOF quando o escritor sai */
     if(fd < 0) return;
     lv_timer_create(tick, 300, NULL);
+    vtap = lv_indev_create();
+    lv_indev_set_type(vtap, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(vtap, vtap_read);
 }

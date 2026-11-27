@@ -53,6 +53,17 @@ static int connect_to(void)
     fcntl(s, F_SETFL, fcntl(s, F_GETFL) & ~O_NONBLOCK);
     int one = 1;
     setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+    /* O FOSTON reiniciado (ou o cabo arrancado) não fecha a conexão: sem isto a leitura esperava
+     * para sempre numa conexão meio-aberta e o relay nunca mais reconectava (medido em 27/11/2026:
+     * 9 h preso em ESTAB com o par morto, e a TV decodificando no FOSTON com o PC ao lado). Com o
+     * keepalive, o FOSTON novo responde RST ao primeiro teste (~3 s) e o cabo fora estoura em ~6 s. */
+    int idle = 3, intvl = 1, cnt = 3;
+    unsigned int user_to = 6000;
+    setsockopt(s, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof one);
+    setsockopt(s, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof idle);
+    setsockopt(s, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof intvl);
+    setsockopt(s, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof cnt);
+    setsockopt(s, IPPROTO_TCP, TCP_USER_TIMEOUT, &user_to, sizeof user_to);
     return s;
 }
 

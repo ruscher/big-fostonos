@@ -104,8 +104,8 @@ static void icon_state(lv_obj_t *l, bf_tri_t st, lv_color_t on_color)
     if(glass) on_color = lv_color_hex(GL_WHITE);          /* vidro: tudo branco, o estado na opacidade */
     lv_color_t c = st == BF_YES ? on_color : (glass ? lv_color_hex(GL_TEXT2) : pal()->text_dim);
     lv_opa_t o = st == BF_YES ? LV_OPA_COVER : (st == BF_NO ? LV_OPA_70 : LV_OPA_30);
-    lv_obj_set_style_text_color(l, c, 0);
-    lv_obj_set_style_text_opa(l, o, 0);
+    bf_text_color_if(l, c);                              /* a cada segundo: só o que mudou */
+    bf_text_opa_if(l, o);
 }
 
 lv_obj_t *topbar_create(lv_obj_t *parent)
@@ -293,5 +293,5 @@ void topbar_update(void)
         set_text_if(bat_pct, buf);
     }
     else set_text_if(bat_pct, "—");
-    lv_obj_set_style_text_color(bat_pct, glass ? lv_color_hex(GL_WHITE) : s->battery_pct >= 0 ? p->text : p->text_dim, 0);
+    bf_text_color_if(bat_pct, glass ? lv_color_hex(GL_WHITE) : s->battery_pct >= 0 ? p->text : p->text_dim);
 }

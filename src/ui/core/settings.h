@@ -54,6 +54,7 @@ typedef struct {
     bool perf_pad;      /* liga sozinho com um controle de jogo conectado */
     bool perf_tv;       /* liga sozinho com a TV aberta */
     bool perf_stream;   /* liga sozinho com a imagem do Big Remote Play */
+    bool perf_gps;      /* liga sozinho com o Big GPS aberto (modo GPS, docs/modos-tv-gps) */
     bool perf_wall;     /* sem papel de parede enquanto ligado (fundo liso: menos a desenhar) */
     bool perf_always;   /* o plano de energia mantém o modo ligado (pausa só GPS e tarefas) */
     int  power_plan;    /* BF_PLAN_*: Ajustes > Potência (core/powerplan.c) */
@@ -70,6 +71,8 @@ typedef struct {
      * (BGVEH_*; -1 = o padrão do perfil), cor (0..7) e tamanho (0 P, 1 M, 2 G) */
     signed char map_veh_model[4], map_veh_color[4], map_veh_size[4];
     bool map_persp;     /* Big GPS: vista inclinada (3D) quando o mapa segue no rumo */
+    int  map_last_prof; /* Big GPS: último transporte escolhido (BGR_CAR..BGR_FOOT) */
+    bool map_autogo;    /* Big GPS: escolhe o transporte e inicia a rota sozinho em 10 s */
     int  kbd_layout;    /* teclado físico: BF_KBD_* (core/hwkbd.h); 0 = pelo idioma */
 } bf_settings_t;
 

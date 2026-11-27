@@ -50,7 +50,7 @@ void powerplan_apply(int plan)
         break;
     }
     s->anim = s->fx_level == BF_FX_FULL;
-    s->perf_auto = s->perf_pad = s->perf_tv = true;   /* os motivos automáticos valem em todos */
+    s->perf_auto = s->perf_pad = s->perf_tv = s->perf_gps = true;   /* os motivos automáticos valem em todos */
     settings_save();
     perfui_settings_changed();
 }

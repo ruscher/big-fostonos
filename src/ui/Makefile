@@ -223,6 +223,9 @@ test:
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fsanitize=address,undefined -g -I. \
 		tests/test_bgspeed.c biggps/bgspeed.c -lm -o build/test/test_bgspeed
 	./build/test/test_bgspeed build/test
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fsanitize=address,undefined -g -I. \
+		tests/test_perfpolicy.c core/perfpolicy.c -o build/test/test_perfpolicy
+	./build/test/test_perfpolicy
 
 run: sim
 	./build/sim/bigfoston-shell

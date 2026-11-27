@@ -647,7 +647,7 @@
 
 #define LV_USE_LED 0
 
-#define LV_USE_LINE       1   /* ícones desenhados (TV: Entrada AV) */
+#define LV_USE_LINE 1
 
 #define LV_USE_LIST 0
 
@@ -874,7 +874,7 @@
  *==================*/
 
 /*1: Enable API to take snapshot for object*/
-#define LV_USE_SNAPSHOT 0
+#define LV_USE_SNAPSHOT 1
 
 /*1: Enable system monitor component*/
 #define LV_USE_SYSMON   0

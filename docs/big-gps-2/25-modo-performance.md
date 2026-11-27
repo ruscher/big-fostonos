@@ -26,6 +26,12 @@ nunca pausa com qualquer aparelho conectado (já era assim).
 
 Nenhum caminho do Big GPS desliga Bluetooth, GPS, telefone ou rede para ganhar quadros.
 
+> **Atualizado em 27/11/2026 — modo GPS.** Com "Ligar sozinho no Big GPS" (Ajustes > Modo
+> performance, ligado de fábrica), abrir o mapa liga o modo GPS. Ele pausa as tarefas agendadas
+> e desliga a TV. Bluetooth e telefone pausam **só se nada estiver conectado**, depois de 15 s de
+> carência. Celular conectado segura os dois; o GPS nunca pausa. Desligando o ajuste, vale o
+> comportamento descrito acima. Ver [../modos-tv-gps/02](../modos-tv-gps/02-sistema-performance-energia-eficiencia.md).
+
 ### Testado no FOSTON (26/11/2026)
 
 - Mapa aberto e modo Performance ligado (pelo canal de controle do shell, `perf on`): só o
@@ -34,6 +40,11 @@ Nenhum caminho do Big GPS desliga Bluetooth, GPS, telefone ou rede para ganhar q
 - Desligado (`perf off`): o `crond` voltou e a nota `/run/bigfoston-perfmode` foi apagada.
 
 ## A etiqueta "Performance" no mapa
+
+> **Atualizado em 27/11/2026:** a etiqueta virou uma marca d'água fixa no topo central (y = 54),
+> igual em todas as telas; `perfui_tag_at` saiu
+> ([../modos-tv-gps/05](../modos-tv-gps/05-etiqueta-flutuante-e-polimento-uxui.md)). O texto
+> abaixo descreve a versão anterior.
 
 A etiqueta do modo fica por cima de todas as telas. No mapa, que ocupa a tela inteira, ela
 cobria a borda do botão Voltar. Agora o mapa diz onde ela vai (`perfui_tag_at`):

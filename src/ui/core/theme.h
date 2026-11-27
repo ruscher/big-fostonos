@@ -124,4 +124,24 @@ lv_obj_t *bf_button(lv_obj_t *parent, const char *symbol, const char *txt, int k
 void bf_label_ellipsis(lv_obj_t *label, int32_t width);
 lv_obj_t *bf_pill(lv_obj_t *parent, const char *txt, lv_color_t color);
 
+/* Estilo local só quando muda: cada lv_obj_set_style_* invalida o objeto (e pode refazer o
+ * layout) mesmo com o mesmo valor. Para o que é reaplicado a cada tique (barra de cima a cada
+ * segundo, TV a cada 500 ms), sem isto a tela era redesenhada sem nada mudar. */
+static inline void bf_text_color_if(lv_obj_t *o, lv_color_t c)
+{
+    if(!lv_color_eq(lv_obj_get_style_text_color(o, 0), c)) lv_obj_set_style_text_color(o, c, 0);
+}
+static inline void bf_text_opa_if(lv_obj_t *o, lv_opa_t v)
+{
+    if(lv_obj_get_style_text_opa(o, 0) != v) lv_obj_set_style_text_opa(o, v, 0);
+}
+static inline void bf_opa_if(lv_obj_t *o, lv_opa_t v)
+{
+    if(lv_obj_get_style_opa(o, 0) != v) lv_obj_set_style_opa(o, v, 0);
+}
+static inline void bf_bg_color_if(lv_obj_t *o, lv_color_t c)
+{
+    if(!lv_color_eq(lv_obj_get_style_bg_color(o, 0), c)) lv_obj_set_style_bg_color(o, c, 0);
+}
+
 #endif

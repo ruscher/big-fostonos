@@ -19,6 +19,7 @@
  * BFTV_RELAY=0 desliga.
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #define _GNU_SOURCE
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fb.h>
@@ -47,6 +48,7 @@
 #include "siano.h"
 #include "tvrelay.h"
 #include "yuvz.h"
+#include "../ui/core/fbmark.h"
 
 static volatile sig_atomic_t quit;
 static void on_sig(int s) { (void)s; quit = 1; }
@@ -524,7 +526,19 @@ static void *show_thread(void *a)
         static double last_blit;
         if(ac >= 0 && pts < ac - (ladder >= 2 ? 1.0 : 0.25)) { frames_late++; late_at = now; }
         else if(ladder >= 1 && now - last_blit < 0.06) frames_thin++;   /* no aperto, até ~15 qps na tela */
-        else { double b0 = mono(); blit(f); blit_s += mono() - b0; frames_shown++; last_blit = now; }
+        else if(fbmark_hold()) last_blit = now;     /* diálogo por cima: não apaga (o tempo segue) */
+        else {
+            double b0 = mono();
+            blit(f);
+            /* a etiqueta do modo performance por cima do quadro (src/ui/core/fbmark.h) */
+            static fbmark_t mark;
+            fbmark_poll(&mark);
+            fbmark_apply(&mark, fb, fb_stride, fb_w, fb_h, out_x, out_y, out_w > 0 ? out_w : f->width * 2,
+                         out_h > 0 ? out_h : f->height * 2);
+            blit_s += mono() - b0;
+            frames_shown++;
+            last_blit = now;
+        }
         pthread_mutex_lock(&q_mx);
         if(!relay_on) av_frame_unref(f);               /* com o PC a vaga guarda o buffer (sem malloc) */
         q_r++;
@@ -602,6 +616,30 @@ static int relay_accept(int ms)
     setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &tmo, sizeof tmo);
     return c;
 }
+
+/* algum PC do outro lado do cabo USB? (o gadget só fica "configured" com um host que o
+ * enumerou). Sem ele, ninguém vai conectar: abrir o canal não espera o relay (1,5 s a cada
+ * troca de canal no carro). Se o cabo chegar depois, a leitura aceita o PC (a cada 0,5 s). */
+static int usb_host_present(void)
+{
+    DIR *d = opendir("/sys/class/udc");
+    if(!d) return 1;                                   /* sem como saber: espera, como antes */
+    struct dirent *e;
+    int yes = 0;
+    while(!yes && (e = readdir(d))) {
+        if(e->d_name[0] == '.') continue;
+        char p[300], st[32] = "";
+        snprintf(p, sizeof p, "/sys/class/udc/%s/state", e->d_name);
+        FILE *f = fopen(p, "r");
+        if(!f) continue;
+        if(fgets(st, sizeof st, f) && !strncmp(st, "configured", 10)) yes = 1;
+        fclose(f);
+    }
+    closedir(d);
+    return yes;
+}
+
+static int relay_wait_ms(void) { return usb_host_present() ? 1500 : 0; }
 
 /* o tamanho que o PC manda: a metade do retângulo (o blit amplia 2x); 0 0 = o do canal */
 static void relay_target(int full, char *t, size_t n)
@@ -1348,7 +1386,7 @@ static int play_file(void)
     write_state("tocando");
     /* com o PC na rede USB, ele decodifica a gravação também */
     if((!getenv("BFTV_RELAY") || atoi(getenv("BFTV_RELAY"))) && (listen_fd = relay_listen()) >= 0 &&
-       (relay_fd = relay_accept(1500)) >= 0 && (play_fp = fopen(play_path, "rb"))) {
+       (relay_fd = relay_accept(relay_wait_ms())) >= 0 && (play_fp = fopen(play_path, "rb"))) {
         fprintf(stderr, "bftvd: o PC decodifica a gravação (relay)\n");
         int r = relay_play();
         fclose(play_fp);
@@ -1480,7 +1518,7 @@ int main(int argc, char **argv)
 
     /* PC ou aqui, e troca no meio: o PC que conecta depois (ele tenta a cada 1 s; numa troca de
      * canal pode chegar depois da espera inicial) assume; o PC que sai devolve para cá */
-    if(listen_fd >= 0) relay_fd = relay_accept(1500);
+    if(listen_fd >= 0) relay_fd = relay_accept(relay_wait_ms());
     AVFormatContext *fc = NULL;
     while(!quit) {
         if(relay_fd >= 0) {

@@ -14,7 +14,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 R=$(cd "$(dirname "$0")/../.." && pwd)
-B=$R/firmware/build
+B=${BIGFOSTON_BUILD:-$R/firmware/build}       # outra árvore de build (BIGFOSTON_BUILD=...)
 M=$B/dl/moonlight/moonlight-embedded
 C=$M/third_party/moonlight-common-c
 OW=$B/out-web
@@ -49,7 +49,7 @@ OP=$B/opus-arm/inst                       # libopus 1.6.1 em ponto fixo (som do 
 INC="-I$OP/include -I$FF/include -I$R/src/remoteplay -I$W/gs -I$C/src -I$C/enet/include -I$C/nanors -I$C/nanors/deps -I$C/nanors/deps/obl \
  -I$SR/usr/include -I$R/src/ui/core"
 SRC="$R/src/remoteplay/bfrp.c $R/src/remoteplay/video.c $R/src/remoteplay/audio.c $R/src/remoteplay/client.c $R/src/ui/core/lz4dec.c $W/gs/client.c $W/gs/http.c $W/gs/mkcert.c $W/gs/xml.c \
- $(ls $C/src/*.c) $C/enet/callbacks.c $C/enet/compress.c $C/enet/host.c $C/enet/list.c $C/enet/packet.c \
+ $(ls "$C"/src/*.c) $C/enet/callbacks.c $C/enet/compress.c $C/enet/host.c $C/enet/list.c $C/enet/packet.c \
  $C/enet/peer.c $C/enet/protocol.c $C/enet/unix.c $C/nanors/rs.c $C/nanors/deps/obl/oblas_common.c \
  $C/nanors/deps/obl/oblas_lite.c"
 # shellcheck disable=SC2086
@@ -62,10 +62,10 @@ ls -la "$W/bfrp"
 # com as bibliotecas do sistema (FFmpeg, libopus, liblz4, curl, OpenSSL, expat); instalar com
 # tools/bigfoston/brp-relay-install.sh
 HSRC="$R/src/remoteplay/bfrp.c $R/src/remoteplay/relay.c $W/gs/client.c $W/gs/http.c $W/gs/mkcert.c $W/gs/xml.c \
- $(ls $C/src/*.c) $C/enet/callbacks.c $C/enet/compress.c $C/enet/host.c $C/enet/list.c $C/enet/packet.c \
+ $(ls "$C"/src/*.c) $C/enet/callbacks.c $C/enet/compress.c $C/enet/host.c $C/enet/list.c $C/enet/packet.c \
  $C/enet/peer.c $C/enet/protocol.c $C/enet/unix.c $C/nanors/rs.c $C/nanors/deps/obl/oblas_common.c \
  $C/nanors/deps/obl/oblas_lite.c"
-# shellcheck disable=SC2086
+# shellcheck disable=SC2086,SC2046   # listas de fontes e a saída do pkg-config: divididas de propósito
 gcc -O2 -pipe -D_GNU_SOURCE -DBFRP_RELAY -DHAS_SOCKLEN_T -DHAS_POLL=1 -DHAS_FCNTL=1 -DHAS_IOCTL=1 -DHAS_GETADDRINFO=1 \
     -DHAS_GETNAMEINFO=1 -DHAS_INET_PTON=1 -DHAS_INET_NTOP=1 -DHAS_MSGHDR_FLAGS=1 -DNDEBUG -Wno-deprecated-declarations \
     -I"$R/src/remoteplay" -I"$W/gs" -I"$C/src" -I"$C/enet/include" -I"$C/nanors" -I"$C/nanors/deps" -I"$C/nanors/deps/obl" \

@@ -13,6 +13,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include "fbmark.h"
 #include "webremote.h"
 #include "settings.h"
 #include "lodepng.h"
@@ -240,6 +241,10 @@ static void direct_copy(void)
 {
     for(int r = dy0; r < dy1; r++)
         memcpy(scr_mem + (size_t)r * scr_line + (size_t)dx0 * 2, fb + (size_t)r * fw + dx0, (size_t)(dx1 - dx0) * 2);
+    /* a etiqueta do modo performance por cima do que acabou de ser copiado (src/ui/core/fbmark.h) */
+    static fbmark_t m;
+    fbmark_poll(&m);
+    fbmark_apply(&m, (uint16_t *)(void *)scr_mem, scr_line / 2, scr_xres, scr_yres, dx0, dy0, dx1 - dx0, dy1 - dy0);
 }
 
 static void tile(const uint8_t *p, uint32_t n)

@@ -26,6 +26,7 @@
 #include <libavcodec/avcodec.h>
 #include <Limelight.h>
 
+#include "../ui/core/fbmark.h"
 #include "video.h"
 
 static uint16_t *fb;
@@ -410,6 +411,10 @@ static void blit(const AVFrame *f)
         if(aligned && f->width * 2 == out_w && f->height * 2 == full_h && !c) blit2x(f);
         else blit_scaled(f);
     }
+    /* a etiqueta do modo performance por cima da imagem (src/ui/core/fbmark.h), fora da barra */
+    static fbmark_t mark;
+    fbmark_poll(&mark);
+    fbmark_apply(&mark, fb, fb_stride, fb_w, fb_h, out_x, out_y, out_w, out_h);
     out_h = full_h;
 }
 
