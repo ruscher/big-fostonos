@@ -46,7 +46,7 @@ partição de dados (`\ResidentFlash`). EBoot, imagem do CE e partições do sis
 | Formatação e teste do cartão | `format-sd.sh`, `sd-write-test.sh`, `fix-fake-sd.sh` | scripts de bancada |
 | Documentação de recuperação | `docs/17-recuperacao.md`, `docs/dual-boot.md` | atual |
 | Identidade visual | `src/ui/assets/logo/fostonos.svg`, `src/ui/tools/logo_svg.py`, Montserrat, Font Awesome | pronta |
-| Fotos reais | `docs/images/foto-*.jpg`, `docs/art/foston-*.png`, `docs/art/passo-*.png` | poucas, sem os menus do CE |
+| Fotos reais | `docs/images/foto-*.jpg`, `docs/art/foston-*.png` | poucas, sem os menus do CE |
 
 ## Problemas encontrados
 

@@ -1230,7 +1230,7 @@ int screenshot_run(const char *dir)
                   "<div class=\"c\"><h2>Pesquisa</h2><form action=\"https://html.duckduckgo.com/html/\"><input name=\"q\" value=\"previsão do tempo\" size=\"30\">"
                   " <button>Pesquisar</button></form></div>"
                   "<div class=\"c\"><h2>Links</h2><a href=\"https://pt.m.wikipedia.org\">Wikipédia</a> · "
-                  "<a href=\"https://github.com/ruscher/foston-monitor\">foston-monitor no GitHub</a></div>", f);
+                  "<a href=\"https://github.com/ruscher/big-fostonos\">BigFoston OS no GitHub</a></div>", f);
             for(int i = 1; i <= 12; i++) fprintf(f, "<div class=\"c\"><h2>Seção %d</h2>Texto para rolar a página.</div>", i);
             fputs("</main></body></html>", f);
             fclose(f);

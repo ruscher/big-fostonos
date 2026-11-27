@@ -1,14 +1,19 @@
 # Personal data copied from the navigator (contacts, routes, history): never publish
 backup/
-# Third-party compiler and libraries (231 MB), rebuilt from their official sources
+# Third-party compilers and libraries, rebuilt from their official sources by
+# tools/setup/toolchain-wince.sh (CeGCC + GMP/MPFR) and firmware/build.sh (Buildroot)
 toolchain/
-# Generated packages
+# Generated packages and releases
 pkg/
-# Local lab state
-lab/state/
-lab/settings.json
+dist/
+*.pkg.tar
+*.pkg.tar.zst
+installer/packaging/arch/src/
+installer/packaging/arch/pkg/
+installer/packaging/arch/*.tar.gz
 __pycache__/
-# Build trees (Buildroot output 11 GB, program build dirs) - regenerated from source
+.pytest_cache/
+# Build trees (Buildroot output ~11 GB, program build dirs) - regenerated from source
 firmware/build/
 src/*/build/
 src/*/*/build/
@@ -17,3 +22,5 @@ src/baremetal/*/build/
 src/ui/third_party/lvgl/
 # nanosvg is downloaded and verified by src/ui/tools/fetch_nanosvg.sh
 src/ui/third_party/nanosvg/
+# Local editor/assistant settings
+.claude/
