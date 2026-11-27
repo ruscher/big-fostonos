@@ -1025,6 +1025,7 @@ int screenshot_run(const char *dir)
                                 "used=9\nview=12\nsats=2:62:40:44\n");
                     fclose(gf);
                 }
+                settings()->map_autogo = false;      /* as contagens de 10 s mudariam a sequência */
                 go(SCR_MAP, 0); pump(3000); shot("42-biggps-mapa");
                 scr_map_demo(6); pump(300); shot("42g-biggps-marcador");
                 scr_map_demo(7); pump(300); shot("42h-biggps-marcador-sedan");

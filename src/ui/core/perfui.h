@@ -21,8 +21,25 @@
 #ifndef BF_PERFUI_H
 #define BF_PERFUI_H
 #include <stdbool.h>
+#include "lvgl.h"
+#include "perfpolicy.h"
 
-typedef enum { PERF_WHY_NONE, PERF_WHY_VIDEO, PERF_WHY_MANUAL, PERF_WHY_PAD, PERF_WHY_TV, PERF_WHY_PLAN, PERF_WHY_STREAM } perf_why_t;
+typedef enum { PERF_WHY_NONE, PERF_WHY_VIDEO, PERF_WHY_MANUAL, PERF_WHY_PAD, PERF_WHY_TV, PERF_WHY_PLAN, PERF_WHY_STREAM,
+               PERF_WHY_GPS } perf_why_t;
+
+/* Modo de uso (docs/modos-tv-gps/02-sistema-performance-energia-eficiencia.md): com a TV ou o
+ * Big GPS abertos, o plano de eficiência daquele uso vale por cima dos ajustes do usuário, sem
+ * gravar nada (sair do app, reiniciar o shell ou o aparelho volta ao que era).
+ *
+ *   TV   pausa GPS e tarefas; Bluetooth e telefone só sem nada conectado; interface quieta
+ *        (sons, animações, papel de parede); o player acima da interface e protegido do OOM
+ *   GPS  desliga a TV; pausa tarefas; Bluetooth e telefone só sem nada conectado; sons de toque,
+ *        animações e papel de parede quietos (a voz e o movimento do mapa não dependem deles)
+ *
+ * Nos primeiros 15 s de um modo, o que ainda está rodando não pausa: o celular de quem acabou
+ * de entrar no carro tem tempo de conectar. Tarefas periódicas do sistema leem
+ * /run/bigfoston-quiet (existe enquanto um modo vale). */
+perf_mode_t perfui_mode(void);      /* perf_mode_t e as regras: perfpolicy.h */
 
 void       perfui_init(void);
 void       perfui_video(bool playing);   /* VIDEO 1/0 do app Internet */
@@ -34,8 +51,7 @@ void       perfui_disable(void);         /* desliga já (manual e o vídeo atual
 perf_why_t perfui_why(void);
 bool       perfui_video_playing(void);
 void       perfui_settings_changed(void);/* depois de mudar um ajuste perf_* */
-void       perfui_tag_hide(bool hide);   /* tela cheia: sem nada por cima do vídeo */
-void       perfui_tag_offset(int y);     /* Internet: abaixo da barra de ferramentas (0 = padrão) */
-void       perfui_tag_at(int x, int y);  /* Big GPS: num lugar livre da tela (x < 0 = padrão) */
+/* o objeto da etiqueta (NULL se não existe): a TV não conta com ela para sair da tela cheia */
+lv_obj_t  *perfui_tag_obj(void);
 void       perfui_dialog(void);          /* o que a etiqueta abre: Desativar / Configurar / Fechar */
 #endif

@@ -1789,14 +1789,19 @@ static void update_botbar(void)
     lv_label_set_text(col_speed, v);
 }
 
+static void ag_detach(void);
+static bool demo_pos;              /* mapdemo 18: posição "ao vivo" fixa, o GPS não a troca */
+
 static void close_sheet(void)
 {
+    ag_detach();                                     /* a contagem perde o painel (o tique encerra) */
     if(sheet) { lv_obj_delete(sheet); sheet = NULL; }
 }
 
 static void end_navigation(void)
 {
     N.navigating = N.simulate = N.rerouting = N.active = N.has_dest = N.waiting = 0;
+    N.req_id++;                                          /* uma rota ainda a caminho não volta a abrir o painel */
     free(N.al);
     N.al = NULL;
     free(N.lim);
@@ -1837,8 +1842,147 @@ static void cancel_cb(lv_event_t *e) { (void)e; end_navigation(); }
 static void recent_add(const char *name, uint32_t x, uint32_t y);
 static char dest_title[96];        /* nome do destino escolhido na busca (vazio: ponto marcado) */
 
+/* ------------------------------------------------------------------ contagens de 10 s
+ * (docs/modos-tv-gps/04-gps-ux-automacao-10s.md)
+ *
+ *   destino marcado --> AG_VEH: o último transporte aceso, "Selecionando Carro em 10 s"
+ *        |                 toque noutro transporte: escolhe ele já (e ele vira o lembrado)
+ *        |                 10 s sem toque: escolhe o lembrado
+ *        v                 toque em qualquer outra coisa do painel ou no X: para (só desta vez)
+ *   rota calculada --> AG_GO: "Iniciar (10 s)" se preenchendo
+ *                         toque em Iniciar: já; 10 s: inicia; outro toque ou X: para
+ *
+ * O estado vive fora do painel: as rotas alternativas chegam depois e refazem o painel, e a
+ * contagem continua de onde estava (ag_bind). Fechar o painel de vez a encerra (o tique vê o
+ * botão sumido). Só conta com posição (sem ela, escolher não leva a lugar nenhum) e, no
+ * Iniciar, com GPS de verdade (sem ele o botão nem liga). Desliga-se no próprio painel. */
+#define AG_MS 10000
+enum { AG_NONE, AG_VEH, AG_GO };
+static struct {
+    int phase, prof;
+    uint32_t t0;
+    bool veh_declined, go_declined;      /* parada à mão neste destino / nesta rota */
+    int shown_s;
+    lv_obj_t *btn, *fill, *lbl, *info, *stop;
+    lv_timer_t *tm;
+} ag;
+
+static const bf_str_t prof_names[BGR_PROFILES] = { S_MAP_CAR, S_MAP_MOTO, S_MAP_BIKE, S_MAP_FOOT };
+
+static void ag_detach(void) { ag.btn = ag.fill = ag.lbl = ag.info = ag.stop = NULL; }
+
+static void ag_stop(void)
+{
+    ag.phase = AG_NONE;
+    if(ag.tm) { lv_timer_delete(ag.tm); ag.tm = NULL; }
+    if(ag.fill) lv_obj_add_flag(ag.fill, LV_OBJ_FLAG_HIDDEN);
+    if(ag.stop) lv_obj_add_flag(ag.stop, LV_OBJ_FLAG_HIDDEN);
+    if(ag.lbl && ag.btn && lv_obj_get_parent(ag.lbl) == ag.btn) lv_label_set_text(ag.lbl, tr(S_MAP_START));
+    else if(ag.lbl) lv_label_set_text(ag.lbl, tr(S_MAP_AUTOGO));
+}
+
+/* parada pelo usuário: não volta neste destino (veículo) ou nesta rota (iniciar) */
+static void ag_decline(void)
+{
+    if(ag.phase == AG_VEH) ag.veh_declined = true;
+    else if(ag.phase == AG_GO) ag.go_declined = true;
+    if(ag.phase != AG_NONE) ag_stop();
+}
+
+static void profile_go(int profile);
+
+/* preenchimento e texto conforme o tempo que passou */
+static void ag_paint(void)
+{
+    uint32_t el = lv_tick_elaps(ag.t0);
+    if(el > AG_MS) el = AG_MS;
+    int left = (int)((AG_MS - el + 999) / 1000);
+    if(ag.fill && ag.btn) {
+        int32_t w = lv_obj_get_width(ag.btn);
+        lv_obj_set_width(ag.fill, (int32_t)((int64_t)w * el / AG_MS));
+    }
+    if(left == ag.shown_s || !ag.lbl) return;
+    ag.shown_s = left;
+    char t[96];
+    if(ag.phase == AG_GO) snprintf(t, sizeof t, tr(S_MAP_START_IN), left);
+    else {
+        char hint[64];
+        snprintf(t, sizeof t, tr(S_MAP_AUTO_PROF), tr(prof_names[ag.prof]), left);
+        snprintf(hint, sizeof hint, " \xC2\xB7 %s", tr(S_MAP_AUTO_HINT));
+        size_t k = strlen(t);
+        snprintf(t + k, sizeof t - k, "%s", hint);
+    }
+    lv_label_set_text(ag.lbl, t);
+}
+
+static void start_navigation(bool simulate);
+
+static void ag_tick(lv_timer_t *t)
+{
+    (void)t;
+    if(!ag.btn || !ag.phase) { ag_detach(); ag_stop(); return; }   /* o painel fechou */
+    if(ag.phase == AG_GO && !pos_live) { ag_decline(); return; }   /* perdeu o GPS: espera o toque */
+    ag_paint();
+    if(lv_tick_elaps(ag.t0) < AG_MS) return;
+    int ph = ag.phase, prof = ag.prof;
+    ag_stop();
+    if(ph == AG_VEH) profile_go(prof);
+    else start_navigation(false);
+}
+
+/* qualquer toque no painel (fora do botão que a contagem vai apertar) para a contagem */
+static void ag_touch_cb(lv_event_t *e)
+{
+    if(ag.phase && lv_event_get_current_target(e) != ag.btn) ag_decline();
+}
+
+static void ag_watch(lv_obj_t *o)
+{
+    if(lv_obj_has_flag(o, LV_OBJ_FLAG_CLICKABLE)) lv_obj_add_event_cb(o, ag_touch_cb, LV_EVENT_PRESSED, NULL);
+    uint32_t n = lv_obj_get_child_count(o);
+    for(uint32_t i = 0; i < n; i++) ag_watch(lv_obj_get_child(o, (int32_t)i));
+}
+
+/* liga a contagem ao botão do painel (novo ou refeito); começa se ainda não contava */
+static void ag_bind(int phase, lv_obj_t *btn, lv_obj_t *lbl, lv_obj_t *stop)
+{
+    if(ag.phase != phase) { ag.phase = phase; ag.t0 = lv_tick_get(); }
+    ag.btn = btn;
+    ag.lbl = lbl;
+    ag.stop = stop;
+    ag.shown_s = -1;
+    lv_obj_update_layout(btn);
+    /* preenchimento: atrás do ícone e do texto, do tamanho do botão, crescendo da esquerda */
+    ag.fill = lv_obj_create(btn);
+    lv_obj_remove_style_all(ag.fill);
+    lv_obj_add_flag(ag.fill, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_remove_flag(ag.fill, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_pos(ag.fill, -lv_obj_get_style_pad_left(btn, 0), -lv_obj_get_style_pad_top(btn, 0));
+    lv_obj_set_size(ag.fill, 0, lv_obj_get_height(btn));
+    lv_obj_set_style_radius(ag.fill, lv_obj_get_style_radius(btn, 0), 0);
+    /* a cor de destaque do tema: contrasta com o botão (o primário do tema e o verde do Iniciar) */
+    lv_obj_set_style_bg_color(ag.fill, pal()->accent, 0);
+    lv_obj_set_style_bg_opa(ag.fill, LV_OPA_50, 0);
+    lv_obj_move_to_index(ag.fill, 0);
+    if(stop) lv_obj_remove_flag(stop, LV_OBJ_FLAG_HIDDEN);
+    if(!ag.tm) ag.tm = lv_timer_create(ag_tick, 100, NULL);
+    ag_paint();
+}
+
+static void ag_stop_cb(lv_event_t *e) { (void)e; ag_decline(); }
+
+/* o interruptor do painel: desligado, nunca conta (e para a contagem atual) */
+static void ag_switch_cb(lv_event_t *e)
+{
+    bool on = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    settings()->map_autogo = on;
+    settings_save();
+    if(!on) ag_decline();
+}
+
 static void start_navigation(bool simulate)
 {
+    ag_stop();
     close_sheet();
     clear_alts();                                    /* navega pela rota escolhida */
     recent_add(dest_title[0] ? dest_title : N.dest_name[0] ? N.dest_name : tr(S_MAP_POINT), N.dx, N.dy);
@@ -1929,10 +2073,13 @@ static void route_request(int profile, bool reroute)
         for(int i = passed; i < N.nstops; i++) { N.stx[i - passed] = N.stx[i]; N.sty[i - passed] = N.sty[i]; }
         N.nstops -= passed;
     }
+    if(N.nstops > BGRT_MAXSTOPS) N.nstops = BGRT_MAXSTOPS;   /* a entrada já limita; aqui fica garantido */
+    if(N.nstops < 0) N.nstops = 0;
+    const int ns = N.nstops;
     bgrt_req_t q = { .id = ++N.req_id, .profile = profile, .sx = sx, .sy = sy, .heading = heading,
                      .dx = N.dx, .dy = N.dy, .nstops = N.nstops, .alternatives = !reroute && !N.navigating,
                      .avoid_toll = (profile == BGR_CAR || profile == BGR_MOTO) && settings()->map_avoid_toll };
-    for(int i = 0; i < N.nstops; i++) { q.stx[i] = N.stx[i]; q.sty[i] = N.sty[i]; }
+    for(int i = 0; i < ns && i < BGRT_MAXSTOPS; i++) { q.stx[i] = N.stx[i]; q.sty[i] = N.sty[i]; }
     N.profile = profile;
     N.waiting = 1;
     if(!reroute) clear_alts();
@@ -1940,9 +2087,15 @@ static void route_request(int profile, bool reroute)
     bgrt_request(&q);
 }
 
-static void profile_cb(lv_event_t *e)
+/* escolheu o transporte (tocando ou pela contagem): ele vira o lembrado e a rota é calculada */
+static void profile_go(int profile)
 {
-    int profile = (int)(intptr_t)lv_event_get_user_data(e);
+    ag_stop();
+    if(profile != settings()->map_last_prof) {
+        settings()->map_last_prof = profile;
+        settings_save();
+    }
+    ag.go_declined = false;                          /* rota nova: o Iniciar pode contar de novo */
     if(!have_pos) { sheet_message(tr(S_MAP_DEST), tr(S_MAP_NOPOS)); return; }
     lv_obj_t *sh = sheet_new();
     bf_label(sh, tr(S_MAP_CALC), BF_FONT_M, pal()->text);
@@ -1953,6 +2106,8 @@ static void profile_cb(lv_event_t *e)
     }
     route_request(profile, false);
 }
+
+static void profile_cb(lv_event_t *e) { profile_go((int)(intptr_t)lv_event_get_user_data(e)); }
 
 static void fav_add(const char *name, uint32_t x, uint32_t y);
 
@@ -2036,16 +2191,39 @@ static void open_dest_sheet_named(uint32_t x, uint32_t y, const char *name)
     }
     bf_label(sh, tr(S_MAP_DEST_HINT), BF_FONT_S, pal()->text_dim);
     lv_obj_t *row = sheet_row(sh);
-    static const bf_str_t names[BGR_PROFILES] = { S_MAP_CAR, S_MAP_MOTO, S_MAP_BIKE, S_MAP_FOOT };
+    /* o último transporte escolhido fica aceso (o primeiro que houver, se ele não tiver dados) */
+    int last = settings()->map_last_prof;
+    if(last < 0 || last >= BGR_PROFILES || !bgrt_have_profile(last)) {
+        last = -1;
+        for(int i = 0; i < BGR_PROFILES && last < 0; i++) if(bgrt_have_profile(i)) last = i;
+    }
+    lv_obj_t *last_btn = NULL;
     for(int i = 0; i < BGR_PROFILES; i++) {
-        lv_obj_t *b = bf_button(row, NULL, tr(names[i]), i == BGR_CAR ? 1 : 0);
+        lv_obj_t *b = bf_button(row, NULL, tr(prof_names[i]), i == (last < 0 ? BGR_CAR : last) ? 1 : 0);
         lv_obj_set_height(b, 48);
         if(bgrt_have_profile(i)) lv_obj_add_event_cb(b, profile_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
         else lv_obj_add_state(b, LV_STATE_DISABLED);
+        if(i == last) last_btn = b;
     }
     lv_obj_t *b = bf_button(row, LV_SYMBOL_CLOSE, NULL, 0);
     lv_obj_set_height(b, 48);
     lv_obj_add_event_cb(b, cancel_cb, LV_EVENT_CLICKED, NULL);
+    /* escolher sozinho: interruptor, situação da contagem e parar só desta vez */
+    lv_obj_t *agr = sheet_row(sh);
+    lv_obj_set_flex_align(agr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t *agsw = lv_switch_create(agr);
+    lv_obj_set_size(agsw, 64, 34);
+    if(settings()->map_autogo) lv_obj_add_state(agsw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(agsw, ag_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_t *agl = bf_label(agr, tr(S_MAP_AUTOGO), BF_FONT_M, pal()->text);
+    lv_label_set_long_mode(agl, LV_LABEL_LONG_WRAP);   /* a contagem e a dica: até duas linhas */
+    lv_obj_set_flex_grow(agl, 1);
+    lv_obj_set_width(agl, 1);                          /* a largura vem do flex_grow */
+    lv_obj_t *ags = bf_button(agr, LV_SYMBOL_CLOSE, NULL, 0);
+    lv_obj_set_size(ags, 44, 40);
+    lv_obj_set_style_min_width(ags, 0, 0);
+    lv_obj_add_flag(ags, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(ags, ag_stop_cb, LV_EVENT_CLICKED, NULL);
     /* evitar pedágios (carro e moto): só aparece com os dados de rotas sem pedágio */
     if(bgrt_have_toll_free(BGR_CAR) || bgrt_have_toll_free(BGR_MOTO)) {
         lv_obj_t *tr_ = sheet_row(sh);
@@ -2075,6 +2253,14 @@ static void open_dest_sheet_named(uint32_t x, uint32_t y, const char *name)
         lv_obj_t *l = bf_label(ar, tr(S_MAP_AL_SWITCH), BF_FONT_M, pal()->text);
         lv_obj_add_flag(l, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(l, avoid_toll_label_cb, LV_EVENT_CLICKED, sw);
+    }
+    /* destino novo: a contagem do transporte pode começar (o painel inteiro avisa um toque) */
+    ag_stop();
+    ag.veh_declined = false;
+    ag_watch(sh);
+    if(settings()->map_autogo && have_pos && last_btn) {
+        ag.prof = last;
+        ag_bind(AG_VEH, last_btn, agl, ags);
     }
 }
 
@@ -2235,12 +2421,22 @@ static void route_sheet(void)
         lv_label_set_long_mode(tl, LV_LABEL_LONG_WRAP);
         lv_obj_set_width(tl, LV_PCT(100));
     }
-    lv_obj_t *b = bf_button(sh, LV_SYMBOL_PLAY, tr(S_MAP_START), 1);
-    lv_obj_set_size(b, LV_PCT(100), 52);
+    lv_obj_t *gor = sheet_row(sh);                   /* Iniciar (com a contagem) e parar a contagem */
+    lv_obj_set_flex_align(gor, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t *b = bf_button(gor, LV_SYMBOL_PLAY, tr(S_MAP_START), 1);
+    lv_obj_set_height(b, 52);
+    lv_obj_set_flex_grow(b, 1);
     lv_obj_set_style_bg_color(b, lv_color_hex(0x1e8e3e), 0);            /* iniciar: verde */
     lv_obj_set_style_text_color(b, lv_color_white(), 0);
     lv_obj_add_event_cb(b, start_cb, LV_EVENT_CLICKED, NULL);
     if(!pos_live) lv_obj_add_state(b, LV_STATE_DISABLED);       /* sem GPS: só simulação */
+    lv_obj_t *go_btn = b, *go_lbl = lv_obj_get_child(b, -1);
+    lv_obj_t *go_stop = bf_button(gor, LV_SYMBOL_CLOSE, NULL, 0);
+    lv_obj_set_size(go_stop, 52, 52);
+    lv_obj_set_style_min_width(go_stop, 0, 0);
+    lv_obj_set_style_pad_hor(go_stop, 0, 0);
+    lv_obj_add_flag(go_stop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(go_stop, ag_stop_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *row = sheet_row(sh);                   /* simular e paradas numa linha */
     b = bf_button(row, LV_SYMBOL_SHUFFLE, tr(S_MAP_SIM), 0);
     lv_obj_set_height(b, 44);
@@ -2282,6 +2478,11 @@ static void route_sheet(void)
             }
         }
     }
+    /* contagem do Iniciar: continua de onde estava se o painel foi refeito (alternativas) */
+    ag_watch(sh);
+    if(ag.phase == AG_GO && !pos_live) ag_decline();     /* perdeu o GPS: não inicia sozinho */
+    else if(ag.phase == AG_GO || (settings()->map_autogo && pos_live && !N.navigating && !ag.go_declined && ag.phase == AG_NONE))
+        ag_bind(AG_GO, go_btn, go_lbl, go_stop);
 }
 
 /* uma posição (GPS ou simulação) */
@@ -2715,6 +2916,7 @@ static void gps_update(void)
     gps_read(&g);
     update_info(&g);
     if(N.navigating && N.simulate) { sim_step(); return; }   /* a simulação substitui o GPS */
+    if(demo_pos) return;                                     /* posição de teste (mapdemo 18) */
     bool live = g.running && g.state >= GPS_FIX2D;
     if(!live) {
         if(pos_live) { pos_live = false; update_marker(); }
@@ -2725,20 +2927,9 @@ static void gps_update(void)
     on_fix(x, y, g.speed_kmh, g.speed_kmh >= 3.0 ? g.course : -1, true);
 }
 
-/* a etiqueta do modo Performance (layer_top) num lugar livre: seguindo, abaixo do Voltar;
- * navegando, embaixo, ao lado da coluna (abaixo da faixa ficam as setas das faixas); com o
- * painel da rota aberto, escondida (o painel ocupa a esquerda) */
-static void perf_tag_place(void)
-{
-    perfui_tag_hide(sheet != NULL || sv != NULL);           /* painel da rota ou busca aberta */
-    if(N.navigating) perfui_tag_at(12 + NAV_COL_W + 12, MAP_H - 12 - 30);
-    else perfui_tag_at(12, 12 + BTN + 8);
-}
-
 static void tick_cb(lv_timer_t *t)
 {
     (void)t;
-    perf_tag_place();
     int swapped = 0;
     pthread_mutex_lock(&R.mu);
     if(R.done) {
@@ -3853,8 +4044,9 @@ static void create(lv_obj_t *parent, int arg)
 static void destroy(void)
 {
     demo_alive = false;
-    perfui_tag_hide(false);
-    perfui_tag_at(-1, 0);
+    demo_pos = false;
+    ag_detach();                                     /* o painel some junto com a tela */
+    ag_stop();
     if(bench_tm) { lv_timer_delete(bench_tm); bench_tm = NULL; }
     if(tick) { lv_timer_delete(tick); tick = NULL; }
     if(anim) { lv_timer_delete(anim); anim = NULL; }
@@ -4017,6 +4209,18 @@ void scr_map_demo(int step)
         pos_speed = 95;
         update_botbar();
         road_limit_update(0, 0);
+    } else if(step == 18) {                          /* teste no aparelho: posição ao vivo fixa (Esplanada) */
+        demo_pos = true;
+        uint32_t x, y;
+        bgr_lonlat_to_world(-47.8919, -15.7975, &x, &y);
+        on_fix(x, y, 0, -1, true);
+    } else if(step == 19) {                          /* destino a ~2 km: contagem do transporte */
+        uint32_t x, y;
+        bgr_lonlat_to_world(-47.8820, -15.7820, &x, &y);
+        open_dest_sheet(x, y);
+    } else if(step == 20) {                          /* teste no aparelho: encerra a navegação */
+        end_navigation();
+        close_sheet();
     } else if(step == 10) {                          /* guia de faixas de exemplo (captura) */
         static bgl_entry_t ex = { .n = 4, .lane = { BGL_LEFT, BGL_THROUGH, BGL_THROUGH, BGL_THROUGH | BGL_RIGHT } };
         lane_e = &ex;

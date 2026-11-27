@@ -12,7 +12,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 R=$(cd "$(dirname "$0")/../.." && pwd)
-B=$R/firmware/build
+B=${BIGFOSTON_BUILD:-$R/firmware/build}       # outra árvore de build (BIGFOSTON_BUILD=...)
+if [ -d "$B" ]; then B=$(cd "$B" && pwd); fi      # absoluto: o script muda de pasta
 W=$B/ffmpeg-tv
 I=$W/inst
 C=$B/out/host/bin/arm-buildroot-linux-musleabi-

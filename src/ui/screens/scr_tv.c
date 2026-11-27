@@ -21,6 +21,7 @@
 #include "../widgets/dialog.h"
 #include "../core/status.h"
 #include "../core/app.h"
+#include "../core/fbmark.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -57,6 +58,7 @@ static int nch, cur_ch = -1;
 static int src = SRC_TV, view = V_WATCH;
 static pid_t tv_pid;
 static bool want_start;                   /* bftvd parando: começa de novo quando sair */
+static bool want_scan, scanning;          /* busca pedida (espera o sintonizador) / rodando */
 static char play_file[420];               /* tocando uma gravação */
 static char recs[MAXREC][96];
 static int nrec;
@@ -191,9 +193,19 @@ static const char *ch_label(int i, char *b, size_t n)
     return b;
 }
 
-/* ------------------------------------------------------------ processo bftvd */
+/* ------------------------------------------------------------ processo bftvd
+ *
+ * Nada aqui espera o player na thread da interface (antes: sair da TV parava a tela ~0,7 s,
+ * até 2 s com o player lento, mais o "bftvd -O" sem prazo). O ciclo é uma máquina de estados
+ * que vive além da tela:
+ *
+ *   tocando --SIGTERM--> encerrando --saiu (ou SIGKILL em 3 s)--> desligando (-O) --> livre
+ *
+ * Abrir a TV, trocar de canal ou buscar com o anterior ainda encerrando só marca o pedido
+ * (want_start/want_scan): o tique começa quando o sintonizador estiver livre. Nunca há dois
+ * bftvd no sintonizador (o -O desligando e o novo ligando ao mesmo tempo). */
 
-static void tv_spawn(char *const argv[])
+static pid_t tv_spawn(char *const argv[])
 {
     pid_t parent = getpid();
     pid_t p = fork();
@@ -208,7 +220,82 @@ static void tv_spawn(char *const argv[])
         execv(argv[0], argv);
         _exit(127);
     }
-    if(p > 0) tv_pid = p;
+    return p > 0 ? p : 0;
+}
+
+#define TV_TERM_MS 3000                   /* SIGTERM sem efeito nesse prazo: SIGKILL */
+
+static pid_t bg_pid, off_pid;             /* encerrando / desligando o sintonizador (-O) */
+#define TV_ORPHANS 4
+static pid_t orphan_pid[TV_ORPHANS];      /* bftvd que não são filhos deste shell (scr_tv_ensure_off) */
+static bool orphan_killed[TV_ORPHANS];
+static uint32_t orphan_at[TV_ORPHANS];
+static bool bg_power_off, bg_killed, off_killed;
+static uint32_t bg_at, off_at;
+
+static bool orphans_left(void)
+{
+    for(int i = 0; i < TV_ORPHANS; i++) if(orphan_pid[i] > 0) return true;
+    return false;
+}
+static lv_timer_t *bg_timer;
+
+/* recolhe sem esperar; true se o processo acabou */
+static bool reap_now(pid_t *p)
+{
+    if(*p <= 0) return true;
+    pid_t r = waitpid(*p, NULL, WNOHANG);
+    if(r == *p || (r < 0 && errno == ECHILD)) { *p = 0; return true; }
+    return false;
+}
+
+/* o sintonizador ainda está sendo liberado por um bftvd anterior */
+static bool tv_busy(void) { return bg_pid > 0 || off_pid > 0 || orphans_left() || bg_power_off; }
+
+static void bg_tick(lv_timer_t *t)
+{
+    (void)t;
+    if(bg_pid > 0 && !reap_now(&bg_pid) && !bg_killed && lv_tick_elaps(bg_at) > TV_TERM_MS) {
+        kill(bg_pid, SIGKILL);                           /* travado: não segura o sintonizador */
+        bg_killed = true;
+        fprintf(stderr, "tv: o player não saiu em %d ms, encerrado à força\n", TV_TERM_MS);
+    }
+    /* o órfão não é filho: não dá para recolher, só ver se ainda existe */
+    for(int i = 0; i < TV_ORPHANS; i++) {
+        if(orphan_pid[i] <= 0) continue;
+        if(kill(orphan_pid[i], 0) != 0) orphan_pid[i] = 0;
+        else if(!orphan_killed[i] && lv_tick_elaps(orphan_at[i]) > TV_TERM_MS) { kill(orphan_pid[i], SIGKILL); orphan_killed[i] = true; }
+    }
+    /* saiu (e nenhum órfão no sintonizador): desliga o sintonizador (economia) */
+    if(bg_pid <= 0 && !orphans_left() && bg_power_off && off_pid <= 0) {
+        bg_power_off = false;
+        char bin[300];
+        tv_file(bin, sizeof bin, "bftvd");
+        char *av[] = { bin, "-O", NULL };
+        off_pid = tv_spawn(av);
+        off_at = lv_tick_get();
+        off_killed = false;
+    }
+    if(off_pid > 0 && !reap_now(&off_pid) && !off_killed && lv_tick_elaps(off_at) > TV_TERM_MS) {
+        kill(off_pid, SIGKILL);
+        off_killed = true;
+    }
+    if(!tv_busy() && bg_timer) { lv_timer_delete(bg_timer); bg_timer = NULL; }
+}
+
+/* entrega o bftvd atual ao encerramento em segundo plano (sair da TV). Um bftvd só começa com
+ * o sintonizador livre (tv_busy), então nunca há outro encerrando aqui: bg_pid está vazio. */
+static void tv_release(bool power_off)
+{
+    if(tv_pid > 0) {
+        kill(tv_pid, SIGTERM);
+        bg_pid = tv_pid;
+        tv_pid = 0;
+        bg_at = lv_tick_get();
+        bg_killed = false;
+    }
+    bg_power_off = bg_power_off || power_off;
+    if(tv_busy() && !bg_timer) bg_timer = lv_timer_create(bg_tick, 100, NULL);
 }
 
 /* termina o bftvd (sem esperar): o tick recolhe e, com want_start, começa de novo */
@@ -217,14 +304,7 @@ static void tv_stop(void)
     if(tv_pid > 0) kill(tv_pid, SIGTERM);
 }
 
-static bool tv_reap(void)
-{
-    if(tv_pid <= 0) return true;
-    int st;
-    pid_t r = waitpid(tv_pid, &st, WNOHANG);
-    if(r == tv_pid || (r < 0 && errno == ECHILD)) { tv_pid = 0; return true; }
-    return false;
-}
+static bool tv_reap(void) { return reap_now(&tv_pid); }
 
 static void tv_start_now(void)
 {
@@ -237,22 +317,23 @@ static void tv_start_now(void)
     snprintf(full, sizeof full, "0,%d,%d,%d", (BF_SCREEN_H - BF_SCREEN_W * 9 / 16) / 2, BF_SCREEN_W, BF_SCREEN_W * 9 / 16);
     if(play_file[0]) {
         char *av[] = { bin, "-r", rect, "-F", full, "-s", (char *)state_path(), "-p", play_file, NULL };
-        tv_spawn(av);
+        tv_pid = tv_spawn(av);
     } else if(cur_ch >= 0 && cur_ch < nch) {
         mkdir(dir, 0755);
         char *av[] = { bin, "-f", fw, "-r", rect, "-F", full, "-s", (char *)state_path(), "-W", dir, chs[cur_ch].mhz, NULL };
-        tv_spawn(av);
+        tv_pid = tv_spawn(av);
     }
 }
 
-/* (re)começa a tocar: se o bftvd ainda está rodando, para e o tick começa quando ele sair */
+/* (re)começa a tocar: se o bftvd ainda está rodando (ou o anterior liberando o sintonizador),
+ * para e o tick começa quando ele sair */
 static void tv_play(void)
 {
     stopped = false;
     if(!have_player() || getenv("BIGFOSTON_TV_STATUS")) return;   /* simulador: sem bftvd */
     want_start = true;
     if(tv_pid > 0) tv_stop();
-    else { want_start = false; tv_start_now(); }
+    else if(!tv_busy()) { want_start = false; tv_start_now(); }
 }
 
 static void tv_halt(void) { want_start = false; tv_stop(); }
@@ -540,7 +621,12 @@ static void build_stopped(void)
     lbl(c, tr(S_TV_STOPPED_HINT), BF_FONT_S, C_GRAY);
 }
 
-static void on_scan_cancel(lv_event_t *e) { (void)e; tv_halt(); }
+static void on_scan_cancel(lv_event_t *e)
+{
+    (void)e;
+    tv_halt();
+    if(want_scan && !scanning) { want_scan = false; show_view(V_CHANNELS); }   /* nem começou */
+}
 
 static void build_scan(void)
 {
@@ -558,6 +644,24 @@ static void build_scan(void)
     key(c, LV_SYMBOL_CLOSE, NULL, tr(S_CANCEL), 120, 64, on_scan_cancel, NULL);
 }
 
+/* começa a busca pedida assim que o sintonizador estiver livre (tique) */
+static void scan_start_if_free(void)
+{
+    if(!want_scan || !tv_reap() || tv_busy()) return;
+    want_scan = false;
+    char bin[300], fw[300], out[300];
+    tv_file(bin, sizeof bin, "bftvd");
+    tv_file(fw, sizeof fw, "isdbt_nova_12mhz_b0.inp");
+    tv_file(out, sizeof out, "canais.tsv");
+    char *av[] = { bin, "-f", fw, "-s", (char *)state_path(), "-S", out, NULL };
+    tv_pid = tv_spawn(av);
+    scanning = tv_pid > 0;
+    if(!scanning) {                                      /* não deu para começar: volta aos canais */
+        fprintf(stderr, "tv: a busca não começou (fork)\n");
+        show_view(V_CHANNELS);
+    }
+}
+
 static void on_scan(lv_event_t *e)
 {
     (void)e;
@@ -568,20 +672,18 @@ static void on_scan(lv_event_t *e)
     build_scan();
     update_ui();
     if(getenv("BIGFOSTON_TV_STATUS")) return;            /* simulador */
-    char bin[300], fw[300], out[300];
-    tv_file(bin, sizeof bin, "bftvd");
-    tv_file(fw, sizeof fw, "isdbt_nova_12mhz_b0.inp");
-    tv_file(out, sizeof out, "canais.tsv");
-    /* o vídeo para antes da busca (o sintonizador é um só) */
-    if(tv_pid > 0) { tv_stop(); for(int i = 0; i < 40 && !tv_reap(); i++) usleep(50000); }
-    if(tv_pid > 0) return;
-    char *av[] = { bin, "-f", fw, "-s", (char *)state_path(), "-S", out, NULL };
-    tv_spawn(av);
+    /* o vídeo para antes da busca (o sintonizador é um só): o tique começa a busca quando ele
+     * sair, sem esperar aqui (antes: até 2 s com a tela parada) */
+    want_scan = true;
+    scanning = false;
+    tv_release(false);                                   /* sai em segundo plano, com o SIGKILL no prazo */
+    scan_start_if_free();
 }
 
 static void show_view(int v)
 {
     if(fs_on) fs_exit();
+    if(v != V_SCAN) want_scan = scanning = false;
     view = v;
     scan_bar = scan_lbl = NULL;
     if(v == V_WATCH) {
@@ -623,6 +725,8 @@ static void fs_enter(void)
     lv_obj_add_flag(fs_ov, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(fs_ov, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(fs_ov, on_fs_tap, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *tg = perfui_tag_obj();                     /* a etiqueta continua clicável por cima */
+    if(tg) lv_obj_move_foreground(tg);
     lv_refr_now(NULL);
     lv_display_enable_invalidation(lv_display_get_default(), false);
     fs_on = true;
@@ -650,13 +754,51 @@ static void on_video_tap(lv_event_t *e) { (void)e; if(!stopped) fs_enter(); }
  * fazia a tela cheia abrir e fechar na hora desde que a TV liga o modo sozinha */
 static bool top_busy(void)
 {
-    lv_obj_t *top = lv_layer_top();
+    lv_obj_t *top = lv_layer_top(), *tag = perfui_tag_obj();
     uint32_t n = lv_obj_get_child_count(top);
     for(uint32_t i = 0; i < n; i++) {
         lv_obj_t *c = lv_obj_get_child(top, (int32_t)i);
-        if(c != fs_ov && !lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) return true;
+        if(c != fs_ov && c != tag && !lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) return true;
     }
     return false;
+}
+
+/* ------------------------------------------------------------ diálogo por cima do vídeo
+ * O bftvd desenha cada quadro direto na tela e apagaria um diálogo (o da etiqueta, uma chamada
+ * recebida, um aviso). Enquanto algo estiver à mostra na camada de cima, FBMARK_HOLD pede ao
+ * player para não desenhar (o som e a decodificação seguem); um instante depois a interface se
+ * redesenha por cima do último quadro. Conferido a cada 100 ms. */
+static bool held;
+static lv_timer_t *hold_t, *hold_redraw_t;
+
+static void hold_redraw(lv_timer_t *t)
+{
+    (void)t;
+    hold_redraw_t = NULL;
+    lv_obj_invalidate(lv_screen_active());
+    lv_obj_invalidate(lv_layer_top());
+}
+
+static void tv_hold(bool on)
+{
+    if(on == held) return;
+    held = on;
+    if(on) {
+        int fd = open(FBMARK_HOLD, O_WRONLY | O_CREAT | O_CLOEXEC, 0644);
+        if(fd >= 0) close(fd);
+        /* o player confere a cada 100 ms e pode estar no meio de um quadro */
+        hold_redraw_t = lv_timer_create(hold_redraw, 150, NULL);
+        lv_timer_set_repeat_count(hold_redraw_t, 1);
+    } else {
+        unlink(FBMARK_HOLD);
+        if(hold_redraw_t) { lv_timer_delete(hold_redraw_t); hold_redraw_t = NULL; }
+    }
+}
+
+static void hold_tick(lv_timer_t *t)
+{
+    (void)t;
+    tv_hold(view == V_WATCH && tv_pid > 0 && !fs_on && top_busy());
 }
 
 /* ------------------------------------------------------------ volume no rodapé */
@@ -846,7 +988,7 @@ static void update_ui(void)
 {
     if(!col) return;
     for(int i = 0; i < 3; i++)                               /* a fonte atual acesa; as outras apagadas */
-        lv_obj_set_style_opa(src_btn[i], i == src ? LV_OPA_COVER : LV_OPA_50, 0);
+        bf_opa_if(src_btn[i], i == src ? LV_OPA_COVER : LV_OPA_50);   /* a cada 500 ms: só se mudou */
     tv_state_t s;
     read_state(&s);
     char name[128], sub[200], b2[96];
@@ -888,7 +1030,11 @@ static void update_ui(void)
     snprintf(sub, sizeof sub, "%s", tr(S_TV_REGION));
     if(b2[0]) { size_t k = strlen(sub); snprintf(sub + k, sizeof sub - k, "  \xC2\xB7  %s", b2); }
     if(t[0]) { size_t k = strlen(sub); snprintf(sub + k, sizeof sub - k, "  \xC2\xB7  %s", t); }
-    if(s.relay && t[0]) { size_t k = strlen(sub); snprintf(sub + k, sizeof sub - k, "  \xC2\xB7  %s", tr(S_TV_ON_PC)); }
+    /* quem decodifica: o PC pelo cabo USB ou o próprio FOSTON (sem o PC, no carro) */
+    if(t[0] && !strcmp(s.state, "tocando") && !sim) {
+        size_t k = strlen(sub);
+        snprintf(sub + k, sizeof sub - k, "  \xC2\xB7  %s", tr(s.relay ? S_TV_ON_PC : S_TV_ON_FOSTON));
+    } else if(s.relay && t[0]) { size_t k = strlen(sub); snprintf(sub + k, sizeof sub - k, "  \xC2\xB7  %s", tr(S_TV_ON_PC)); }
     set_text(ft_name, name);
     set_text(ft_sub, sub);
     int lv = -1;                                              /* força do sinal (SNR) */
@@ -910,7 +1056,7 @@ static void update_ui(void)
     enable(fs_btn, playing && !strcmp(s.state, "tocando"));
     bool recording = tv_pid > 0 && s.rec && !play_file[0];
     enable(rec_btn, tv && view == V_WATCH && tv_pid > 0 && !strcmp(s.state, "tocando"));
-    lv_obj_set_style_bg_color(rec_dot, recording ? lv_color_hex(0xFF3B30) : C_WHITE, 0);
+    bf_bg_color_if(rec_dot, recording ? lv_color_hex(0xFF3B30) : C_WHITE);
     set_text(rec_txt, tr(recording ? S_TV_REC_STOP : S_TV_REC));
     bool vol = status_provider()->volume_get() >= 0;
     enable(volup, vol);
@@ -919,11 +1065,51 @@ static void update_ui(void)
 
 /* ------------------------------------------------------------ ciclo */
 
+
+/* Anti-congelamento: tocando, o bftvd regrava o estado a cada 1 s. Parado há 10 s com o
+ * processo vivo (travou no SPI, no /dev/dsp ou no framebuffer), ele é trocado por um novo;
+ * no máximo 3 vezes a cada 2 min, para não ficar num laço com um defeito que não passa. */
+#define WD_STALE_MS 10000
+static uint32_t wd_window_at, wd_seen_at;
+static int wd_restarts;
+static struct timespec wd_mtime;
+static pid_t wd_pid;
+
+static void tv_watchdog(void)
+{
+    if(view != V_WATCH || stopped || tv_pid <= 0 || want_start || getenv("BIGFOSTON_TV_STATUS")) { wd_pid = 0; return; }
+    struct stat st;
+    if(stat(state_path(), &st)) return;
+    /* o prazo conta no relógio monotônico, desde a última mudança do arquivo: o relógio de parede
+     * pode pular (NTP, GPS) e a mtime junto */
+    if(wd_pid != tv_pid || st.st_mtim.tv_sec != wd_mtime.tv_sec || st.st_mtim.tv_nsec != wd_mtime.tv_nsec) {
+        wd_pid = tv_pid;
+        wd_mtime = st.st_mtim;
+        wd_seen_at = lv_tick_get();
+        return;
+    }
+    if(lv_tick_elaps(wd_seen_at) < WD_STALE_MS) return;
+    tv_state_t s;
+    read_state(&s);
+    if(strcmp(s.state, "tocando")) return;               /* ligando, sintonizando: tempos próprios */
+    if(lv_tick_elaps(wd_window_at) > 120000) { wd_window_at = lv_tick_get(); wd_restarts = 0; }
+    if(wd_restarts >= 3) return;
+    wd_restarts++;
+    fprintf(stderr, "tv: o player não atualiza o estado há %u ms: reiniciando (%d/3)\n",
+            (unsigned)lv_tick_elaps(wd_seen_at), wd_restarts);
+    wd_pid = 0;
+    tv_release(false);                                   /* encerra o travado em segundo plano */
+    want_start = true;                                   /* e começa outro quando ele sair */
+}
+
 static void tick_cb(lv_timer_t *t)
 {
     (void)t;
     bool gone = tv_reap();
-    if(gone && want_start) { want_start = false; tv_start_now(); }
+    if(gone && want_start && !tv_busy()) { want_start = false; tv_start_now(); }
+    scan_start_if_free();
+    gone = gone && tv_pid <= 0;                          /* começou outro agora: não "acabou" */
+    tv_watchdog();
     /* tela cheia: sai se o vídeo parou ou se algo precisa aparecer (chamada recebida, aviso) */
     if(fs_on && (tv_pid <= 0 || top_busy())) fs_exit();
     if(fs_on) return;                                    /* nada se redesenha por cima do vídeo */
@@ -945,7 +1131,8 @@ static void tick_cb(lv_timer_t *t)
             snprintf(b, sizeof b, tr(S_TV_SCAN_PROGRESS), s.scan_ch, s.scan_found);
             set_text(scan_lbl, b);
         }
-        if(gone && !getenv("BIGFOSTON_TV_STATUS")) {   /* a busca terminou (ou foi cancelada) */
+        if(gone && scanning && !getenv("BIGFOSTON_TV_STATUS")) {   /* a busca terminou (ou foi cancelada) */
+            scanning = false;
             load_channels();
             load_last();
             if(cur_ch < 0 && nch) cur_ch = 0;
@@ -964,7 +1151,7 @@ static void create(lv_obj_t *parent, int arg)
 {
     (void)arg;
     app_wallpaper_visible(false);                        /* TV: tudo preto */
-    perfui_tv(true);                                     /* modo performance (perf_tv) */
+    perfui_tv(true);                                     /* modo TV (perf_tv, docs/modos-tv-gps) */
     root = bf_plain(parent);
     lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_color(root, lv_color_black(), 0);
@@ -998,25 +1185,23 @@ static void create(lv_obj_t *parent, int arg)
     play_file[0] = 0;
     show_view(V_WATCH);
     tick = lv_timer_create(tick_cb, 500, NULL);
+    unlink(FBMARK_HOLD);                                 /* sobra de uma TV anterior */
+    held = false;
+    hold_t = lv_timer_create(hold_tick, 100, NULL);
 }
 
 static void destroy(void)
 {
     if(tick) lv_timer_delete(tick);
     tick = NULL;
+    if(hold_t) { lv_timer_delete(hold_t); hold_t = NULL; }
     fs_exit();
-    want_start = false;
-    /* sair da TV: para o vídeo e desliga o sintonizador (economia) */
-    if(tv_pid > 0) { tv_stop(); for(int i = 0; i < 40 && !tv_reap(); i++) usleep(50000); }
-    if(tv_pid > 0) { kill(tv_pid, SIGKILL); waitpid(tv_pid, NULL, 0); tv_pid = 0; }
-    if(have_player() && !getenv("BIGFOSTON_TV_STATUS")) {
-        char bin[300];
-        tv_file(bin, sizeof bin, "bftvd");
-        char *av[] = { bin, "-O", NULL };
-        tv_spawn(av);
-        if(tv_pid > 0) { waitpid(tv_pid, NULL, 0); tv_pid = 0; }
-    }
+    want_start = want_scan = scanning = false;
+    /* sair da TV: o vídeo para e o sintonizador desliga (economia) em segundo plano; a
+     * interface segue na hora (tv_release) */
+    tv_release(have_player() && !getenv("BIGFOSTON_TV_STATUS"));
     app_wallpaper_visible(true);
+    tv_hold(false);
     perfui_tv(false);
     root = col = video = panel = foot = ft_info = ft_name = ft_sub = ft_bars = vol_row = vol_sl = vol_pct = NULL;
     play_btn = stop_btn = rec_btn = rec_dot = rec_txt = chdn = chup = list_btn = fs_btn = volup = voldn = NULL;
@@ -1024,6 +1209,44 @@ static void destroy(void)
 }
 
 const bf_screen_def_t scr_tv_def = { create, destroy, S_APP_TV, NULL };
+
+/* algum bftvd que esta tela não conhece (a tela fechada e um player que ficou, ou um iniciado
+ * de fora): vai embora em segundo plano e o sintonizador desliga. O da tela é deixado em paz. */
+void scr_tv_ensure_off(void)
+{
+    if(root || getenv("BIGFOSTON_TV_STATUS")) return;   /* a TV está aberta: ela cuida */
+    DIR *d = opendir("/proc");
+    if(!d) return;
+    struct dirent *e;
+    bool found = false;
+    while((e = readdir(d))) {
+        if(e->d_name[0] < '1' || e->d_name[0] > '9') continue;
+        pid_t p = (pid_t)atoi(e->d_name);
+        if(p == bg_pid || p == off_pid) continue;        /* já saindo pelo caminho normal */
+        int slot = -1;
+        for(int i = 0; i < TV_ORPHANS; i++) {
+            if(orphan_pid[i] == p) { slot = -2; break; }  /* já sendo encerrado */
+            if(orphan_pid[i] <= 0 && slot == -1) slot = i;
+        }
+        if(slot == -2) continue;
+        char path[64], comm[32] = "";
+        snprintf(path, sizeof path, "/proc/%d/comm", (int)p);
+        FILE *f = fopen(path, "r");
+        if(!f) continue;
+        if(fgets(comm, sizeof comm, f)) comm[strcspn(comm, "\n")] = 0;
+        fclose(f);
+        if(strcmp(comm, "bftvd")) continue;
+        fprintf(stderr, "tv: player órfão %d encerrado (modo GPS)\n", (int)p);
+        kill(p, SIGTERM);
+        found = true;
+        if(slot < 0) { kill(p, SIGKILL); continue; }     /* sem lugar para vigiar: não espera */
+        orphan_pid[slot] = p;                            /* o -O só depois de todos sumirem */
+        orphan_at[slot] = lv_tick_get();
+        orphan_killed[slot] = false;
+    }
+    closedir(d);
+    if(found && have_player()) tv_release(true);
+}
 
 /* --screenshot: 0 assistindo, 1 canais, 2 gravações, 3 busca, 4 AV, 5 volume no rodapé */
 void scr_tv_demo(int step)

@@ -802,11 +802,11 @@ static void pad_tick(lv_timer_t *t)
     pad_flush(false);                                    /* controle físico: o estado a cada 8 ms */
     if(view == V_VIDEO) {                                /* algo visível por cima: o vídeo para */
         static int shown = -1;
-        lv_obj_t *top = lv_layer_top();
+        lv_obj_t *top = lv_layer_top(), *tag = perfui_tag_obj();   /* a etiqueta o motor mistura (fbmark.h) */
         int busy = 0;
         for(uint32_t i = 0; i < lv_obj_get_child_count(top); i++) {
             lv_obj_t *c = lv_obj_get_child(top, (int32_t)i);
-            if(c != fs_ov && c != fs_bar && !lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) busy = 1;
+            if(c != fs_ov && c != fs_bar && c != tag && !lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) busy = 1;
         }
         if(busy == shown) { /* igual */ }
         else { shown = busy; eng_send("SHOW %d", !busy); if(!busy && video_box) lv_obj_invalidate(video_box); }

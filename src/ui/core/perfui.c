@@ -12,8 +12,13 @@
 #include "hwkbd.h"
 #include "gamepad.h"
 #include "btstat.h"
+#include "phonestat.h"
 #include "app.h"
+#include "../screens/screens.h"
+#include "fbmark.h"
+#include <fcntl.h>
 #include <sys/resource.h>
+#include <unistd.h>
 #include "../widgets/dialog.h"
 #include <stdio.h>
 #include <string.h>
@@ -24,12 +29,12 @@ static bool manual, video, suppressed;   /* suppressed: desligado pelo usuário 
 static bool pad, pad_suppressed;         /* controle de jogo conectado; desligado à mão com ele */
 static bool tv, tv_suppressed;           /* app TV aberto; desligado à mão com ela */
 static bool stream, stream_suppressed;   /* sessão com imagem do Big Remote Play */
+static bool gps, gps_suppressed;         /* Big GPS aberto; desligado à mão com ele */
+static perf_mode_t mode_cur;             /* modo de uso em vigor (perfui_mode) */
+static uint32_t mode_since;              /* quando o modo atual começou (carência) */
 static bool on;                          /* o que foi pedido ao perfmode */
 static lv_timer_t *delay_t, *tick_t;
 static lv_obj_t *tag, *tag_lbl;
-static bool tag_hidden;
-static int tag_y;
-static int tag_ax = -1, tag_ay;          /* lugar fixo pedido pela tela (perfui_tag_at) */
 
 /* ---------------------------------------------------------------- janela de progresso */
 static lv_obj_t *pm_box, *pm_bar, *pm_title, *pm_sub;
@@ -130,8 +135,19 @@ static void pm_open(void)
 static bool strong(void)
 {
     return manual || (video && !suppressed && settings()->perf_auto) || (pad && !pad_suppressed && settings()->perf_pad) ||
-           (tv && !tv_suppressed && settings()->perf_tv) || (stream && !stream_suppressed && settings()->perf_stream);
+           (tv && !tv_suppressed && settings()->perf_tv) || (stream && !stream_suppressed && settings()->perf_stream) ||
+           (gps && !gps_suppressed && settings()->perf_gps);
 }
+
+/* o modo de uso pedido agora (TV e Big GPS nunca estão abertos juntos: uma tela por vez) */
+static perf_mode_t mode_calc(void)
+{
+    if(tv && !tv_suppressed && settings()->perf_tv) return PERF_MODE_TV;
+    if(gps && !gps_suppressed && settings()->perf_gps) return PERF_MODE_GPS;
+    return PERF_MODE_NONE;
+}
+
+perf_mode_t perfui_mode(void) { return on ? mode_cur : PERF_MODE_NONE; }
 
 static bool wanted(void) { return strong() || settings()->perf_always; }
 
@@ -139,6 +155,10 @@ static bool wanted(void) { return strong() || settings()->perf_always; }
  * celular precisa conectar e as chamadas, chegar) */
 static unsigned svc_now(void)
 {
+    /* plano de eficiência dos modos: vale por cima de "O que pausar" enquanto o app está aberto.
+     * Bluetooth e telefone entram aqui, mas o que está conectado fica segurado (holds_update) */
+    perf_mode_t m = mode_calc();
+    if(m != PERF_MODE_NONE) return perfpolicy_pause(m);
     unsigned s = settings()->perf_svc;
     /* Big Remote Play: o controle Bluetooth precisa conectar e ficar (pode chegar depois de a
      * sessão começar) e as chamadas, chegar: nunca pausa Bluetooth nem telefone */
@@ -152,7 +172,7 @@ static void apply(void)
     if(w == on) return;
     on = w;
     if(w) {
-        if(settings()->perf_quiet) fx_quiet(true);
+        if(settings()->perf_quiet || mode_calc() != PERF_MODE_NONE) fx_quiet(true);
         /* o Bluetooth de teclado/controle e o app aberto: perfmode_hold (tick) */
         perfmode_enter(svc_now(), false);
     }
@@ -205,6 +225,7 @@ void perfui_manual(bool m)
     if(!m && pad) pad_suppressed = true;         /* nem com este controle */
     if(!m && tv) tv_suppressed = true;           /* nem com a TV aberta agora */
     if(!m && stream) stream_suppressed = true;
+    if(!m && gps) gps_suppressed = true;
     schedule(0);
 }
 
@@ -215,14 +236,18 @@ void perfui_disable(void)
     if(pad) pad_suppressed = true;
     if(tv) tv_suppressed = true;
     if(stream) stream_suppressed = true;
+    if(gps) gps_suppressed = true;
     schedule(0);
 }
+
+static void mode_refresh(void);
 
 void perfui_tv(bool open)
 {
     if(open == tv) return;
     tv = open;
     if(!open) tv_suppressed = false;
+    mode_refresh();
     if(manual) return;
     schedule(0);                                 /* abre: já; fecha: sai já (o app saiu) */
 }
@@ -238,7 +263,7 @@ void perfui_stream(bool o)
 
 void perfui_settings_changed(void)
 {
-    if(on) fx_quiet(settings()->perf_quiet);     /* sons e animações valem na hora */
+    if(on) fx_quiet(settings()->perf_quiet || mode_calc() != PERF_MODE_NONE);   /* valem na hora */
     /* automático desligado no meio do vídeo: sai já; religado com o vídeo tocando: entra
      * depois da espera de sempre */
     if(manual || wanted() == on) return;
@@ -252,6 +277,7 @@ perf_why_t perfui_why(void)
     if(video && !suppressed && settings()->perf_auto) return PERF_WHY_VIDEO;
     if(tv && !tv_suppressed && settings()->perf_tv) return PERF_WHY_TV;
     if(stream && !stream_suppressed && settings()->perf_stream) return PERF_WHY_STREAM;
+    if(gps && !gps_suppressed && settings()->perf_gps) return PERF_WHY_GPS;
     if(pad && !pad_suppressed && settings()->perf_pad) return PERF_WHY_PAD;
     return settings()->perf_always ? PERF_WHY_PLAN : PERF_WHY_VIDEO;
 }
@@ -277,22 +303,37 @@ static void tag_click(lv_event_t *e)
     perfui_dialog();
 }
 
+/* o X do canto: fecha como o Esc (o callback recebe -1) */
+static void dlg_x_click(lv_event_t *e) { (void)e; dialog_key(false); }
+
 void perfui_dialog(void)
 {
     if(dlg_bd) return;
-    char body[300];
+    char body[512];
     perf_why_t w = perfui_why();
     snprintf(body, sizeof body, "%s\n%s", tr(w == PERF_WHY_MANUAL ? S_PERFM_WHY_MANUAL : w == PERF_WHY_PAD ? S_PERFM_WHY_PAD
                                               : w == PERF_WHY_TV ? S_PERFM_WHY_TV : w == PERF_WHY_STREAM ? S_PERFM_WHY_STREAM : w == PERF_WHY_PLAN ? S_PERFM_WHY_PLAN
+                                              : w == PERF_WHY_GPS ? S_PERFM_WHY_GPS
                                               : S_PERFM_WHY_VIDEO), tr(S_PERFM_TAG_BODY));
-    static const char *b[3];
+    static const char *b[2];
     b[0] = tr(S_PERFM_DISABLE);
     b[1] = tr(S_PERFM_CONFIGURE);
-    b[2] = tr(S_PERFM_CLOSE);
-    lv_obj_t *card = dialog_open(LV_SYMBOL_CHARGE, lv_color_hex(C_PERF), tr(S_SET_PERFMODE), body, b, 3, 1, 0,
+    lv_obj_t *card = dialog_open(LV_SYMBOL_CHARGE, lv_color_hex(C_PERF), tr(S_SET_PERFMODE), body, b, 2, 1, 0,
                                  tag_answer, NULL);
     dlg_bd = lv_obj_get_parent(card);
     lv_obj_add_event_cb(dlg_bd, dlg_gone, LV_EVENT_DELETE, NULL);
+    /* fechar: um X no canto superior direito do cartão, fora do fluxo dos botões */
+    lv_obj_t *x = bf_button(card, LV_SYMBOL_CLOSE, NULL, 0);
+    lv_obj_add_flag(x, LV_OBJ_FLAG_FLOATING);
+    lv_obj_set_size(x, 48, 48);
+    lv_obj_set_style_min_width(x, 0, 0);
+    lv_obj_set_style_pad_all(x, 0, 0);
+    lv_obj_set_style_radius(x, 24, 0);
+    lv_obj_set_style_bg_opa(x, LV_OPA_TRANSP, 0);
+    lv_obj_set_ext_click_area(x, 8);
+    int32_t pad = lv_obj_get_style_pad_right(card, 0), padt = lv_obj_get_style_pad_top(card, 0);
+    lv_obj_align(x, LV_ALIGN_TOP_RIGHT, pad - 8, -padt + 8);
+    lv_obj_add_event_cb(x, dlg_x_click, LV_EVENT_CLICKED, NULL);
 }
 
 static void tag_deleted(lv_event_t *e)
@@ -300,33 +341,117 @@ static void tag_deleted(lv_event_t *e)
     if(lv_event_get_target(e) == tag) tag = tag_lbl = NULL;    /* o tick refaz */
 }
 
+/* A etiqueta é uma marca d'água: sempre no mesmo lugar, no meio do topo, um pouco abaixo da
+ * barra (y = TAG_Y, exista a barra ou não), quase invisível (TAG_OPA) e clicável: um toque a
+ * acende e abre Desativar / Configurar (o X fecha). Quem desenha direto na tela (TV, Big Remote
+ * Play, vídeo em tela cheia do Internet) a recebe em FBMARK_PATH e a mistura em cada quadro
+ * (src/ui/core/fbmark.h): ela aparece igual por cima deles. */
+#define TAG_H   30
+#define TAG_Y   (BF_TOPBAR_H + 6)
+#define TAG_OPA 77                       /* ~30 %: dá para achar, não atrapalha o que está por baixo */
+static bool mark_on;                     /* FBMARK_PATH gravado por este shell */
+
 static void tag_make(void)
 {
     tag = lv_button_create(lv_layer_top());
     lv_obj_add_event_cb(tag, tag_deleted, LV_EVENT_DELETE, NULL);
     lv_obj_remove_style_all(tag);
-    lv_obj_set_size(tag, LV_SIZE_CONTENT, 30);
-    lv_obj_set_style_pad_hor(tag, 12, 0);
-    lv_obj_set_style_radius(tag, 15, 0);
+    lv_obj_set_size(tag, LV_SIZE_CONTENT, TAG_H);
+    lv_obj_set_style_radius(tag, TAG_H / 2, 0);
     lv_obj_set_style_bg_color(tag, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(tag, LV_OPA_40, 0);           /* bem suave: não esconde a página */
-    lv_obj_set_style_bg_opa(tag, LV_OPA_70, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(tag, LV_OPA_50, 0);
     lv_obj_set_style_border_width(tag, 1, 0);
     lv_obj_set_style_border_color(tag, lv_color_hex(C_PERF), 0);
-    lv_obj_set_style_border_opa(tag, LV_OPA_60, 0);
-    lv_obj_set_ext_click_area(tag, 8);
+    lv_obj_set_style_border_opa(tag, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_left(tag, 10, 0);
+    lv_obj_set_style_pad_right(tag, 12, 0);
+    lv_obj_set_style_pad_column(tag, 6, 0);
+    lv_obj_set_flex_flow(tag, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(tag, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_opa(tag, TAG_OPA, 0);               /* marca d'água */
+    lv_obj_set_style_opa(tag, LV_OPA_COVER, LV_STATE_PRESSED);   /* o toque a acende */
+    lv_obj_set_ext_click_area(tag, 10);
     lv_obj_add_flag(tag, LV_OBJ_FLAG_HIDDEN);
-    char t[64];
-    snprintf(t, sizeof t, LV_SYMBOL_CHARGE " %s", tr(S_PERFM_TAG));
-    tag_lbl = bf_label(tag, t, BF_FONT_S, lv_color_white());
-    lv_obj_set_style_text_opa(tag_lbl, LV_OPA_90, 0);
-    lv_obj_center(tag_lbl);
+    bf_label(tag, LV_SYMBOL_CHARGE, BF_FONT_S, lv_color_hex(C_PERF));
+    tag_lbl = bf_label(tag, tr(S_PERFM_TAG), BF_FONT_S, lv_color_white());
+    lv_obj_align(tag, LV_ALIGN_TOP_MID, 0, TAG_Y);
     lv_obj_add_event_cb(tag, tag_click, LV_EVENT_CLICKED, NULL);
 }
 
-void perfui_tag_hide(bool hide) { tag_hidden = hide; }
-void perfui_tag_offset(int y) { tag_y = y; }
-void perfui_tag_at(int x, int y) { tag_ax = x; tag_ay = y; }
+/* a etiqueta, já com a transparência, para quem desenha direto na tela (fbmark.h). Feita uma
+ * vez por aparição (o desenho e o lugar não mudam); some com o modo */
+static void mark_write(void)
+{
+#if LV_USE_SNAPSHOT
+    lv_obj_update_layout(tag);
+    lv_obj_set_style_opa(tag, LV_OPA_COVER, 0);          /* a cópia sai inteira; o alfa vai abaixo */
+    lv_draw_buf_t *db = lv_snapshot_take(tag, LV_COLOR_FORMAT_ARGB8888);
+    lv_obj_set_style_opa(tag, TAG_OPA, 0);
+    if(!db) return;
+    lv_area_t c;
+    lv_obj_get_coords(tag, &c);
+    int w = db->header.w, h = db->header.h;
+    /* a cópia inclui a área de toque estendida? o tamanho vem do objeto: alinha pelo centro */
+    int x = c.x1 - (w - lv_area_get_width(&c)) / 2, y = c.y1 - (h - lv_area_get_height(&c)) / 2;
+    if(w > 0 && h > 0 && w <= FBMARK_MAX_W && h <= FBMARK_MAX_H) {
+        static uint16_t px[FBMARK_MAX_W * FBMARK_MAX_H];
+        static uint8_t al[FBMARK_MAX_W * FBMARK_MAX_H];
+        for(int j = 0; j < h; j++) {
+            const uint8_t *row = db->data + (size_t)j * db->header.stride;
+            for(int i = 0; i < w; i++) {
+                const uint8_t *p = row + i * 4;              /* B G R A */
+                px[j * w + i] = (uint16_t)((p[2] >> 3) << 11 | (p[1] >> 2) << 5 | p[0] >> 3);
+                al[j * w + i] = (uint8_t)((p[3] * TAG_OPA * 32 + 255 * 255 / 2) / (255 * 255));
+            }
+        }
+        FILE *f = fopen(FBMARK_PATH ".new", "wb");
+        if(f) {
+            uint16_t hd[4] = { (uint16_t)x, (uint16_t)y, (uint16_t)w, (uint16_t)h };
+            size_t n = (size_t)w * h;
+            bool ok = fwrite("BFM1", 1, 4, f) == 4 && fwrite(hd, sizeof hd[0], 4, f) == 4 &&
+                      fwrite(px, sizeof px[0], n, f) == n && fwrite(al, 1, n, f) == n;
+            if(fclose(f) == 0 && ok) mark_on = rename(FBMARK_PATH ".new", FBMARK_PATH) == 0;
+            else unlink(FBMARK_PATH ".new");
+        }
+    }
+    lv_draw_buf_destroy(db);
+#endif
+}
+
+static void tag_anim_y(void *o, int32_t v) { lv_obj_set_style_translate_y(o, v, 0); }
+static void tag_anim_opa(void *o, int32_t v) { lv_obj_set_style_opa(o, (lv_opa_t)v, 0); }
+
+static void tag_show_now(void)
+{
+    lv_obj_remove_flag(tag, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(tag);
+    lv_anim_delete(tag, NULL);
+    lv_obj_set_style_translate_y(tag, 0, 0);
+    mark_write();
+    if(fx_anim() != LV_ANIM_ON) return;                  /* interface quieta: aparece na hora */
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, tag);
+    lv_anim_set_duration(&a, 220);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_set_values(&a, -6, 0);
+    lv_anim_set_exec_cb(&a, tag_anim_y);
+    lv_anim_start(&a);
+    lv_anim_set_values(&a, LV_OPA_TRANSP, TAG_OPA);
+    lv_anim_set_exec_cb(&a, tag_anim_opa);
+    lv_anim_start(&a);
+}
+
+static void tag_hide_now(void)
+{
+    if(mark_on) { unlink(FBMARK_PATH); mark_on = false; }   /* some também de cima do vídeo */
+    if(!tag || lv_obj_has_flag(tag, LV_OBJ_FLAG_HIDDEN)) return;
+    lv_anim_delete(tag, NULL);
+    lv_obj_set_style_opa(tag, TAG_OPA, 0);
+    lv_obj_add_flag(tag, LV_OBJ_FLAG_HIDDEN);
+}
+
+lv_obj_t *perfui_tag_obj(void) { return tag; }
 
 /* ---------------------------------------------------------------- apps e controle */
 
@@ -337,9 +462,10 @@ void perfui_tag_at(int x, int y) { tag_ax = x; tag_ay = y; }
 static unsigned app_needs(bf_screen_t s)
 {
     switch(s) {
-    /* Big GPS: navegando, nada essencial pausa — GPS, o som e a música do celular (Bluetooth)
-     * e as chamadas (docs/big-gps-2/25-modo-performance.md) */
-    case SCR_MAP: return PM_SVC_GPS | PM_SVC_BT | PM_SVC_PHONE;
+    /* Big GPS: com o modo GPS (perf_gps), o GPS fica e Bluetooth e telefone seguem a regra "só
+     * pausa sem nada conectado" (holds_update); sem ele, nada essencial pausa
+     * (docs/big-gps-2/25-modo-performance.md) */
+    case SCR_MAP: return settings()->perf_gps ? PM_SVC_GPS : PM_SVC_GPS | PM_SVC_BT | PM_SVC_PHONE;
     case SCR_GPS: return PM_SVC_GPS;
     case SCR_PHONE: return PM_SVC_PHONE | PM_SVC_BT;
     case SCR_BLUETOOTH: return PM_SVC_BT;
@@ -352,28 +478,45 @@ static unsigned hold_now;
 static bool hold_dropping;               /* o app largou algo: pausa de novo em hold_drop_at */
 static uint32_t hold_drop_at;
 static bool prio_now, bt_boosted;
-static uint32_t boost_at;
+static uint32_t boost_at, tv_boost_at;
 
-/* algum aparelho Bluetooth conectado (celular, fone, teclado, controle)? Lido a cada 1 s */
-static bool bt_in_use(void)
+/* Conexões reais, lidas a cada 1 s (arquivos em /run, sem D-Bus): algum aparelho Bluetooth
+ * conectado (celular, fone, teclado, controle) e o celular em especial (o canal de chamadas
+ * do bfphone, ou um aparelho conectado com ícone de telefone, que é o que o BlueZ informa). */
+static bool conn_bt, conn_phone;
+
+static void conn_update(bool fresh)
 {
     static uint32_t at;
-    static bool used;
-    if(lv_tick_elaps(at) < 1000) return used;
+    if(!fresh && at && lv_tick_elaps(at) < 1000) return;
     at = lv_tick_get();
     static bt_info_t b;
+    static ph_info_t ph;
     bt_read(&b);
-    used = false;
-    for(int i = 0; i < b.ndev; i++) if(b.dev[i].connected) used = true;
-    return used;
+    conn_bt = conn_phone = false;
+    for(int i = 0; i < b.ndev; i++) {
+        if(!b.dev[i].connected) continue;
+        conn_bt = true;
+        if(!strncmp(b.dev[i].icon, "phone", 5)) conn_phone = true;
+    }
+    ph_read(&ph);
+    if(ph.available && ph.link) conn_phone = conn_bt = true;
+}
+
+#define MODE_GRACE_MS 15000              /* começo de um modo: o celular ainda pode conectar */
+
+/* o que fica: o app aberto, o Bluetooth com algo conectado, telefone e Bluetooth com o celular
+ * e, nos primeiros 15 s de um modo, o que ainda roda (perfpolicy.c, testado) */
+static unsigned holds_need(void)
+{
+    return perfpolicy_holds(mode_calc(), app_needs(nav_current().scr), hwkbd_bt_connected() || conn_bt,
+                            conn_phone, lv_tick_elaps(mode_since) < MODE_GRACE_MS, perfmode_paused());
 }
 
 static void holds_update(void)
 {
-    unsigned need = app_needs(nav_current().scr);
-    /* com um aparelho Bluetooth conectado o Bluetooth nunca pausa: pausar derrubava o celular
-     * (e a internet e o som dele) a cada vídeo, e o teclado/controle */
-    if(hwkbd_bt_connected() || bt_in_use()) need |= PM_SVC_BT;
+    conn_update(false);
+    unsigned need = holds_need();
     unsigned add = need & ~hold_now, drop = hold_now & ~need;
     if(add) {                                    /* o app está esperando: já */
         hold_now |= add;
@@ -385,13 +528,18 @@ static void holds_update(void)
         hold_drop_at = lv_tick_get() + HOLD_RELEASE_MS;
     } else if((int32_t)(lv_tick_get() - hold_drop_at) >= 0) {
         hold_dropping = false;
-        hold_now = need;
+        conn_update(true);                       /* soltar com o estado de agora: um celular que */
+        hold_now = holds_need();                 /* acabou de conectar não perde o telefone */
         perfmode_hold(hold_now);
     }
 }
 
-/* prioridade: a interface com o modo ligado (perf_prio) ou com um controle; o bluetoothd com
- * um controle (ele lê o canal HID do Bluetooth e entrega ao kernel pelo uhid) */
+/* prioridade: a interface com o modo ligado (perf_prio) ou com um controle; o bluetoothd com um
+ * controle (ele lê o canal HID do Bluetooth e entrega ao kernel pelo uhid); no modo TV o bftvd
+ * fica protegido do OOM e com nice -10 (ele já se põe assim; de novo a cada 5 s porque trocar
+ * de canal é um processo novo). No modo TV a interface continua em -5, abaixo do player: medido
+ * na Globo sem o PC, com ela em 0 o toque esperava até 618 ms (p95 190 ms); em -5, até 141 ms
+ * (p95 70 ms), com os mesmos quadros (13-15 qps). Ociosa, a prioridade não custa nada. */
 static void prio_update(void)
 {
     bool want = (on && settings()->perf_prio) || pad;
@@ -408,6 +556,50 @@ static void prio_update(void)
         perfmode_renice("bluetoothd", 0);
         bt_boosted = false;
     }
+    /* no máximo a cada 5 s, achando o bftvd ou não: na lista de canais (vídeo parado) não há
+     * player, e tentar a cada tique varria o /proc inteiro 5 vezes por segundo */
+    bool tv_mode = on && mode_cur == PERF_MODE_TV;
+    if(tv_mode && (!tv_boost_at || (int32_t)(lv_tick_get() - tv_boost_at) >= 5000)) {
+        perfmode_renice("bftvd", -10);
+        tv_boost_at = lv_tick_get() | 1;             /* 0 = ainda não tentou neste modo */
+    } else if(!tv_mode) tv_boost_at = 0;
+}
+
+/* /run/bigfoston-quiet: existe enquanto um modo vale; as tarefas periódicas do sistema
+ * (o relatório "alive" do S10bigfoston) pulam a vez. /run some ao desligar. */
+#define QUIET_FLAG "/run/bigfoston-quiet"
+static void quiet_flag(bool want)
+{
+    static int has = -1;
+    if(has == (int)want) return;
+    if(want) { int fd = open(QUIET_FLAG, O_WRONLY | O_CREAT | O_CLOEXEC, 0644); if(fd >= 0) close(fd); }
+    else unlink(QUIET_FLAG);
+    has = want;
+}
+
+/* o modo mudou agora: marca o começo (carência) e acerta o que fica segurado ANTES de o
+ * perfmode receber o alvo novo (senão a carência chegaria um tique depois do stop) */
+static void mode_refresh(void)
+{
+    perf_mode_t m = mode_calc();
+    if(m != mode_cur) { mode_cur = m; mode_since = lv_tick_get(); }
+    holds_update();
+}
+
+/* modo de uso: carência, sinal para o sistema e, ao entrar no GPS, a TV desligada de vez */
+static void mode_update(void)
+{
+    bool g = nav_current().scr == SCR_MAP;
+    if(g != gps) {
+        gps = g;
+        if(!g) gps_suppressed = false;           /* a próxima abertura pode ligar de novo */
+        if(g && settings()->perf_gps) scr_tv_ensure_off();   /* nada de TV órfã no modo GPS */
+        mode_refresh();
+        if(!manual) schedule(0);
+    }
+    mode_refresh();
+    pm_state_t ps = perfmode_state();
+    quiet_flag(mode_cur != PERF_MODE_NONE && (ps == PM_ON || ps == PM_ENTERING));
 }
 
 static void pad_update(void)
@@ -425,13 +617,15 @@ static void tick(lv_timer_t *t)
 {
     (void)t;
     pad_update();
-    holds_update();
+    mode_update();                                 /* acerta também o que fica segurado */
     prio_update();
+    /* interface: sem sons de toque e animações (perf_quiet, e sempre nos modos TV e GPS) */
+    fx_quiet(on && (settings()->perf_quiet || mode_cur != PERF_MODE_NONE));
     /* fundo liso enquanto ligado: o papel de parede sai do que é redesenhado */
     static bool plain;
     pm_state_t ps = perfmode_state();
     bool want_plain = settings()->fx_level == BF_FX_MIN ||
-                      (settings()->perf_wall && strong() && (ps == PM_ON || ps == PM_ENTERING));
+                      ((settings()->perf_wall || mode_cur != PERF_MODE_NONE) && strong() && (ps == PM_ON || ps == PM_ENTERING));
     if(on) perfmode_enter(svc_now(), false);       /* o motivo mudou (o vídeo começou com o plano) */
     if(want_plain != plain) { plain = want_plain; app_wallpaper_plain(plain); }
     pm_update();
@@ -442,33 +636,20 @@ static void tick(lv_timer_t *t)
         dlg_bd = NULL;
         lv_obj_delete_async(d);
     }
-    /* nada de etiqueta por cima da janela de progresso ou do diálogo (ficava acesa sobre o
-     * fundo escurecido), nem em Ajustes > Modo performance (o cartão de estado já diz) */
-    /* ligado pelo controle (jogando, por muito tempo): a etiqueta avisa por 6 s e some, para
-     * não ficar por cima das telas; Ajustes > Modo performance continua mostrando */
-    static pm_state_t last_st = PM_OFF;
-    static uint32_t on_since;
-    if(st == PM_ON && last_st != PM_ON) on_since = lv_tick_get();
-    last_st = st;
-    bool brief = (perfui_why() == PERF_WHY_PAD || perfui_why() == PERF_WHY_TV || perfui_why() == PERF_WHY_STREAM) && st == PM_ON &&
-                 lv_tick_elaps(on_since) > 6000;
-    bool show = settings()->perf_tag && !tag_hidden && !pm_box && !dlg_bd && nav_current().scr != SCR_PERFMODE &&
-                perfui_why() != PERF_WHY_PLAN &&
-                nav_current().scr != SCR_SCC && nav_current().scr != SCR_BRP && nav_current().scr != SCR_TV &&
-                (st == PM_ON || st == PM_ENTERING) && !brief;
-    if(show) {
-        if(tag_ax >= 0) lv_obj_set_pos(tag, tag_ax, tag_ay);
-        else lv_obj_set_pos(tag, 8, BF_TOPBAR_H + 6 + tag_y);
-        if(lv_obj_has_flag(tag, LV_OBJ_FLAG_HIDDEN)) {
-            lv_obj_remove_flag(tag, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_move_foreground(tag);
-        }
-    }
-    else if(!lv_obj_has_flag(tag, LV_OBJ_FLAG_HIDDEN)) lv_obj_add_flag(tag, LV_OBJ_FLAG_HIDDEN);
+    /* a etiqueta: à mostra enquanto o modo estiver ligado (ou ligando), por qualquer motivo e
+     * em qualquer tela, sempre no mesmo lugar (tag_make) */
+    bool show = settings()->perf_tag && (st == PM_ON || st == PM_ENTERING);
+    if(show && lv_obj_has_flag(tag, LV_OBJ_FLAG_HIDDEN)) tag_show_now();
+    else if(show && lv_obj_get_index(tag) != (int32_t)lv_obj_get_child_count(lv_layer_top()) - 1 && !pm_box && !dlg_bd &&
+            !dialog_is_open())
+        lv_obj_move_foreground(tag);                    /* algo novo na camada (tela cheia): por cima de novo */
+    else if(!show) tag_hide_now();
 }
 
 void perfui_init(void)
 {
+    unlink(QUIET_FLAG);                          /* sobras de um shell anterior */
+    unlink(FBMARK_PATH);
     if(!tick_t) tick_t = lv_timer_create(tick, 200, NULL);
     if(perfmode_recover()) pm_open();            /* sobrou de um shell anterior: religa */
 }

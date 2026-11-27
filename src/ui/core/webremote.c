@@ -13,6 +13,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include "fbmark.h"
 #include "webremote.h"
 #include "settings.h"
 #include "lodepng.h"
@@ -238,8 +239,26 @@ bool webremote_set_direct(bool on)
 
 static void direct_copy(void)
 {
-    for(int r = dy0; r < dy1; r++)
-        memcpy(scr_mem + (size_t)r * scr_line + (size_t)dx0 * 2, fb + (size_t)r * fw + dx0, (size_t)(dx1 - dx0) * 2);
+    int x0 = dx0, y0 = dy0, x1 = dx1, y1 = dy1;
+    /* a etiqueta do modo performance (src/ui/core/fbmark.h): se ela apareceu, sumiu ou mudou, a
+     * área dela também volta à página; a marca é misturada uma vez sobre o que foi copiado */
+    static fbmark_t m;
+    if(fbmark_poll(&m)) {
+        int mx0 = m.rx < 0 ? 0 : m.rx, my0 = m.ry < 0 ? 0 : m.ry;
+        int mx1 = m.rx + m.rw > fw ? fw : m.rx + m.rw, my1 = m.ry + m.rh > fh ? fh : m.ry + m.rh;
+        if(mx0 < mx1 && my0 < my1) {
+            if(x0 >= x1 || y0 >= y1) { x0 = mx0; y0 = my0; x1 = mx1; y1 = my1; }
+            else {
+                if(mx0 < x0) x0 = mx0;
+                if(my0 < y0) y0 = my0;
+                if(mx1 > x1) x1 = mx1;
+                if(my1 > y1) y1 = my1;
+            }
+        }
+    }
+    for(int r = y0; r < y1; r++)
+        memcpy(scr_mem + (size_t)r * scr_line + (size_t)x0 * 2, fb + (size_t)r * fw + x0, (size_t)(x1 - x0) * 2);
+    fbmark_apply(&m, (uint16_t *)(void *)scr_mem, scr_line / 2, scr_xres, scr_yres, x0, y0, x1 - x0, y1 - y0);
 }
 
 static void tile(const uint8_t *p, uint32_t n)

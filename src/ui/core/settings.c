@@ -56,6 +56,7 @@ void settings_defaults(bf_settings_t *s)
     s->perf_pad = true;
     s->perf_tv = true;
     s->perf_stream = true;
+    s->perf_gps = true;
     s->perf_wall = true;
     s->perf_always = false;
     s->power_plan = BF_PLAN_BAL;
@@ -67,6 +68,8 @@ void settings_defaults(bf_settings_t *s)
     s->map_avoid_toll = false;
     s->map_alerts = true;
     s->map_persp = true;
+    s->map_last_prof = 0;               /* carro */
+    s->map_autogo = true;
     for(int i = 0; i < 4; i++) { s->map_veh_model[i] = -1; s->map_veh_color[i] = 0; s->map_veh_size[i] = 1; }
     s->kbd_layout = 0;                  /* automático: ABNT2 em português, EUA nas outras */
 }
@@ -160,6 +163,7 @@ void settings_load(void)
         else if(!strcmp(k, "perf_pad"))      cur.perf_pad = atoi(v) != 0;
         else if(!strcmp(k, "perf_tv"))       cur.perf_tv = atoi(v) != 0;
         else if(!strcmp(k, "perf_stream"))   cur.perf_stream = atoi(v) != 0;
+        else if(!strcmp(k, "perf_gps"))      cur.perf_gps = atoi(v) != 0;
         else if(!strcmp(k, "perf_wall"))     cur.perf_wall = atoi(v) != 0;
         else if(!strcmp(k, "perf_always"))   cur.perf_always = atoi(v) != 0;
         else if(!strcmp(k, "power_plan"))    cur.power_plan = clampi(atoi(v), 0, BF_PLAN__N - 1);
@@ -173,6 +177,8 @@ void settings_load(void)
         else if(!strcmp(k, "map_avoid_toll")) cur.map_avoid_toll = atoi(v) != 0;
         else if(!strcmp(k, "map_alerts"))   cur.map_alerts = atoi(v) != 0;
         else if(!strcmp(k, "map_persp"))    cur.map_persp = atoi(v) != 0;
+        else if(!strcmp(k, "map_last_prof")) cur.map_last_prof = clampi(atoi(v), 0, 3);
+        else if(!strcmp(k, "map_autogo"))   cur.map_autogo = atoi(v) != 0;
         else if(!strncmp(k, "map_veh_", 8) && k[8] >= '0' && k[8] <= '3' && !k[9]) {
             int i = k[8] - '0', m = -1, c = 0, z = 1;
             if(sscanf(v, "%d %d %d", &m, &c, &z) == 3) {
@@ -226,6 +232,7 @@ bool settings_save(void)
             cur.perf_prio ? 1 : 0, cur.perf_tag ? 1 : 0, cur.perf_modal ? 1 : 0, cur.perf_pad ? 1 : 0,
             cur.perf_tv ? 1 : 0, cur.perf_wall ? 1 : 0, cur.perf_always ? 1 : 0, cur.power_plan, cur.fx_level);
     fprintf(f, "perf_stream = %d\n", cur.perf_stream ? 1 : 0);
+    fprintf(f, "perf_gps = %d\n", cur.perf_gps ? 1 : 0);
     fprintf(f, "book_font = %d\nbook_space = %d\nbook_margin = %d\nbook_theme = %d\n",
             cur.book_font, cur.book_space, cur.book_margin, cur.book_theme);
     fprintf(f, "nav_voice = %d\n", cur.nav_voice ? 1 : 0);
@@ -233,6 +240,7 @@ bool settings_save(void)
     fprintf(f, "map_avoid_toll = %d\n", cur.map_avoid_toll ? 1 : 0);
     fprintf(f, "map_alerts = %d\n", cur.map_alerts ? 1 : 0);
     fprintf(f, "map_persp = %d\n", cur.map_persp ? 1 : 0);
+    fprintf(f, "map_last_prof = %d\nmap_autogo = %d\n", cur.map_last_prof, cur.map_autogo ? 1 : 0);
     for(int i = 0; i < 4; i++)
         fprintf(f, "map_veh_%d = %d %d %d\n", i, cur.map_veh_model[i], cur.map_veh_color[i], cur.map_veh_size[i]);
     fprintf(f, "show_date = %d\n", cur.show_date);

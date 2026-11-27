@@ -44,6 +44,8 @@ void scr_music_demo(int step);   /* 0 tocar a 1ª faixa, 1 lista, 2 tela cheia, 
 void scr_tv_demo(int step);
 void scr_web_demo(const char *what);   /* Internet: "+start", "+menu", "+marks", URL... */
 void scr_fm_demo(int step);      /* Rádio FM: 0 normal, 1 digitar a frequência, 2 diagnóstico */
+/* modo GPS: nenhum bftvd fora da tela da TV (sem órfãos tocando ou segurando o sintonizador) */
+void scr_tv_ensure_off(void);
 bool scr_tv_volume(void);        /* ícone de som na TV: barra no rodapé (true se tratou) */      /* TV: 0 assistindo, 1 canais, 2 gravações, 3 busca, 4 AV */
 void scr_phone_demo(int tab);   /* Telefone: 0 discador, 1 contatos, 2 recentes, 3 mensagens */
 void scr_map_demo(int step);     /* Big GPS: 0 destino e rota, 1 simular, 2 avançar 60 s, 3-5 busca */

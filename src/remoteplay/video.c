@@ -26,6 +26,7 @@
 #include <libavcodec/avcodec.h>
 #include <Limelight.h>
 
+#include "../ui/core/fbmark.h"
 #include "video.h"
 
 static uint16_t *fb;
@@ -352,13 +353,27 @@ static void blit_smooth(const AVFrame *f)
  * seguinte); as linhas de saída pares copiam, as ímpares são a média de duas linhas dobradas.
  * Medido no FOSTON: a genérica 320 -> 800x450 gastava ~23 ms por quadro. */
 
+static fbmark_t mark;                                    /* a etiqueta do modo performance (fbmark.h) */
+
 static void blit2x_smooth(const AVFrame *f)
 {
     static uint32_t dl[2][512], avg[512];               /* linhas dobradas e a média (com cache) */
+    static uint8_t dm[1024];                             /* as linhas que mudaram mais as da etiqueta */
     int w = f->width, h = f->height, words = w;          /* w pontos de origem -> w palavras */
     if(w > 512 || w < 2 || h < 2) return;
     int H = out_h;                                       /* linhas a pintar (o CLIP pode cortar) */
     const uint8_t *dr = atomic_exchange(&force_full, 0) ? NULL : dirty_rows;
+    /* a etiqueta é misturada de novo a cada quadro: as linhas dela precisam ser redesenhadas, senão
+     * a mistura cai sobre a do quadro anterior e ela escurece com a imagem parada */
+    if(dr && mark.ok) {
+        if(h > (int)sizeof dm) dr = NULL;
+        else {
+            memcpy(dm, dr, (size_t)h);
+            int s0 = (mark.y - out_y) / 2 - 1, s1 = (mark.y + mark.h - out_y) / 2 + 1;
+            for(int sy = s0 < 0 ? 0 : s0; sy <= s1 && sy < h; sy++) dm[sy] = 1;
+            dr = dm;
+        }
+    }
     int cur = 0;
     for(int sy = 0; sy < h; sy++) {
         /* a linha dobrada sy entra nas saídas 2sy-1, 2sy e 2sy+1 */
@@ -398,10 +413,11 @@ void video_clip(int rows) { atomic_store(&clip_rows, rows < 0 ? 0 : rows); atomi
 
 static void blit(const AVFrame *f)
 {
-    if(!fb || !atomic_load(&show) || f->format != AV_PIX_FMT_YUV420P && f->format != AV_PIX_FMT_YUVJ420P) return;
+    if(!fb || !atomic_load(&show) || (f->format != AV_PIX_FMT_YUV420P && f->format != AV_PIX_FMT_YUVJ420P)) return;
     int full_h = out_h, c = atomic_load(&clip_rows);
     full_out_h = full_h;
     if(c > 0 && c < out_h) out_h -= c;                  /* a barra do rodapé por cima: não pinta ali */
+    if(fbmark_poll(&mark)) atomic_store(&force_full, 1);   /* apareceu, sumiu ou mudou: quadro inteiro */
     bool aligned = !(((uintptr_t)(fb + out_y * fb_stride + out_x) | (uintptr_t)(fb_stride * 2)) & 3);
     if(atomic_load(&smooth) && aligned && passthrough && f->width * 2 == out_w && f->height * 2 == full_h)
         blit2x_smooth(f);                                /* relay: metade exata da área */
@@ -410,6 +426,8 @@ static void blit(const AVFrame *f)
         if(aligned && f->width * 2 == out_w && f->height * 2 == full_h && !c) blit2x(f);
         else blit_scaled(f);
     }
+    /* a etiqueta do modo performance por cima da imagem (src/ui/core/fbmark.h), fora da barra */
+    fbmark_apply(&mark, fb, fb_stride, fb_w, fb_h, out_x, out_y, out_w, out_h);
     out_h = full_h;
 }
 

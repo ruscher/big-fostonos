@@ -24,16 +24,18 @@ for f in ['L8', 'AL88', 'I1']:  # RGB888 fica: exigido pelo XRGB8888 no 9.2
     setd('LV_DRAW_SW_SUPPORT_' + f, '0')
 setd('LV_USE_LOG', '1')
 setd('LV_LOG_PRINTF', '1')
-for w in ['ANIMIMG', 'CALENDAR', 'CANVAS', 'CHECKBOX', 'DROPDOWN', 'IMAGEBUTTON', 'LED', 'LINE',
+for w in ['ANIMIMG', 'CALENDAR', 'CANVAS', 'CHECKBOX', 'DROPDOWN', 'IMAGEBUTTON', 'LED',
           'LIST', 'MENU', 'MSGBOX', 'ROLLER', 'SCALE', 'SPAN', 'SPINBOX', 'SPINNER', 'TABLE',
           'TABVIEW', 'WIN', 'THEME_SIMPLE', 'THEME_MONO', 'OBSERVER']:
     setd('LV_USE_' + w, '0')
+setd('LV_USE_LINE', '1')                             # ícones desenhados (TV: Entrada AV)
 setd('LV_FONT_MONTSERRAT_14', '0')
 setd('LV_FONT_CUSTOM_DECLARE', 'LV_FONT_DECLARE(bf_font_14) LV_FONT_DECLARE(bf_font_20) '
      'LV_FONT_DECLARE(bf_font_28) LV_FONT_DECLARE(bf_mono_16) LV_FONT_DECLARE(bf_font_clock_72)')
 setd('LV_FONT_DEFAULT', '&bf_font_20')
 setd('LV_USE_TJPGD', '1')                           # capas JPEG (ID3 APIC) do Multimídia
 setd('LV_USE_GIF', '1')                             # GIF animado (core/imgload.c)
+setd('LV_USE_SNAPSHOT', '1')                        # etiqueta do modo performance para quem desenha direto na tela (src/ui/core/fbmark.h)
 setd('LV_USE_SDL', 'BIGFOSTON_USE_SDL')
 setd('LV_USE_LINUX_FBDEV', 'BIGFOSTON_USE_FBDEV')
 setd('LV_LINUX_FBDEV_BUFFER_COUNT', '2')            # buffer duplo
