@@ -15,6 +15,7 @@
 set -eu
 R=$(cd "$(dirname "$0")/../.." && pwd)
 B=${BIGFOSTON_BUILD:-$R/firmware/build}       # outra árvore de build (BIGFOSTON_BUILD=...)
+if [ -d "$B" ]; then B=$(cd "$B" && pwd); fi      # absoluto: o script muda de pasta
 M=$B/dl/moonlight/moonlight-embedded
 C=$M/third_party/moonlight-common-c
 OW=$B/out-web

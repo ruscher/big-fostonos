@@ -21,13 +21,16 @@ JavaScript novos; os equivalentes para C e shell são os abaixo.
 | Analisador estático do GCC (`-fanalyzer`) | `perfui`, `perfpolicy`, `ctl`, `settings`, `scr_tv`, `scr_perfmode`, `topbar`, `scr_map`, `scr_web`, `scr_brp`, `webremote`, `bftv-relay` (PC) e `bftvd` (ARM) | **0** (havia 1 em `route_request`, código anterior: falso positivo de limite, reforçado com cópia local limitada) |
 | Shell | `shellcheck` 0.11 em `S10bigfoston`, `build-tv.sh`, `build-remoteplay.sh`, `tv-relay-install.sh` | **0 avisos** (4 anteriores no `build-remoteplay.sh`: divisão intencional, agora citada na exceção) |
 | Patch do LVGL | `patch --dry-run` no `lv_obj.c` original | aplica limpo |
+| Revisão automática do PR (CodeRabbit, 10 comentários) | conferidos no código | **10 corrigidos**: busca da TV que não começa (volta aos canais); busca esperando um player travado (agora pelo encerramento com prazo e `SIGKILL`); vários órfãos vigiados ao mesmo tempo; contagem do Iniciar parando se o GPS cai; rota atrasada reabrindo o painel depois de Encerrar; telefone solto com o estado de conexão de 1 s antes; etiqueta escurecendo nas linhas puladas do `bfrp` (e presa no vídeo do Internet ao sumir); milissegundos em 64 bits (estouro com 24,9 dias ligado); `BIGFOSTON_BUILD` relativo; instalador do relay na mesma árvore |
+| `bfrp` e `bftvd` depois das correções | a árvore de toolchain deles não estava disponível | `video.c` com o `-fanalyzer` e os cabeçalhos do Moonlight: **0**; `bftvd.c` checado com os cabeçalhos do FFmpeg do PC. Os binários no cartão são os de antes destas correções |
 
 ## Testes automatizados
 
 | Suíte | Resultado |
 |---|---|
-| `make test` (18 programas com ASan/UBSan, inclui o novo `test_perfpolicy`) | **todos passaram** (código 0), 0 avisos de sanitizador |
+| `make test` (19 programas com ASan/UBSan, inclui os novos `test_perfpolicy` e `test_fbmark`) | **todos passaram** (código 0), 0 avisos de sanitizador |
 | `test_perfpolicy`: TV/GPS × Bluetooth/celular conectado × carência × o que já está pausado (exaustivo: nunca pausa o que está conectado; o modo GPS nunca pausa o GPS) | **ok** |
+| `test_fbmark`: mistura RGB565, recorte na região desenhada, aviso de marca que aparece/muda/some com a área a refazer, arquivo inválido | **ok** |
 | `pytest tests` (instalador e protocolo do agente, como no CI) | **9 passaram** |
 | `make -C src/wince/agent host-test` (CI) | **ok** |
 | Capturas do simulador (`--screenshot`, 174 telas) contra as de antes das mudanças | só mudaram relógio/data/uptime/CPU, a página do Modo performance (nova seção) e a etiqueta (visual novo e presente na TV): conferido lado a lado |
@@ -98,6 +101,7 @@ journalctl --user -u bigfoston-tv-relay -f
 | zram e swappiness | zram medido e descartado pelo projeto ([../performance/05-zram.md](../performance/05-zram.md)); sem swap, swappiness não age |
 | cgroups e `ionice` | o kernel/BusyBox do aparelho não têm; prioridade por `nice` e OOM |
 | Bluetooth e telefone pausados com **nada** conectado | regra coberta pelo `test_perfpolicy` (exaustivo). Não exercitada no aparelho para não desconectar o celular do usuário durante os testes. Falta conferir no carro: abrir a TV sem celular e ver `bfphone` e `bluetoothd` pararem depois de 15 s |
-| `S10bigfoston` pulando a vez | o shell já cria `/run/bigfoston-quiet`; o script novo vale com a próxima imagem do firmware (`firmware/build.sh`) |
+| `S10bigfoston` pulando a vez | o shell já cria `/run/bigfoston-quiet`; o script novo está na imagem enviada ao cartão (vale depois de desligar e ligar) |
 | Contagem do Iniciar com rotas alternativas chegando | o roteador não achou alternativas para os destinos do teste; coberto pelo código, não exercitado |
-| Instalação definitiva | o shell testado foi para `/usr/bin` na RAM (volta ao da imagem no próximo boot); o `bftvd` novo está no cartão (`bftvd.0.6.5` é o anterior). O shell definitivo entra com a próxima imagem (`firmware/build.sh` + `tools/bigfoston/linux-update.py`) |
+| Instalação definitiva | imagem nova (shell e `S10bigfoston`) gerada pelo `firmware/build.sh` e enviada por `tools/bigfoston/linux-update.py stage`, conferida no cartão; entra ao desligar e ligar o aparelho. O `bftvd` novo está no cartão (`bftvd.0.6.5` é o anterior) |
+| Busca de canais completa | só começar e cancelar foram exercitados (a lista de canais ficou idêntica); a busca inteira leva 2 min e reescreve a lista |

@@ -226,9 +226,18 @@ static pid_t tv_spawn(char *const argv[])
 #define TV_TERM_MS 3000                   /* SIGTERM sem efeito nesse prazo: SIGKILL */
 
 static pid_t bg_pid, off_pid;             /* encerrando / desligando o sintonizador (-O) */
-static pid_t orphan_pid;                  /* bftvd que não é filho deste shell (scr_tv_ensure_off) */
-static bool bg_power_off, bg_killed, off_killed, orphan_killed;
-static uint32_t bg_at, off_at, orphan_at;
+#define TV_ORPHANS 4
+static pid_t orphan_pid[TV_ORPHANS];      /* bftvd que não são filhos deste shell (scr_tv_ensure_off) */
+static bool orphan_killed[TV_ORPHANS];
+static uint32_t orphan_at[TV_ORPHANS];
+static bool bg_power_off, bg_killed, off_killed;
+static uint32_t bg_at, off_at;
+
+static bool orphans_left(void)
+{
+    for(int i = 0; i < TV_ORPHANS; i++) if(orphan_pid[i] > 0) return true;
+    return false;
+}
 static lv_timer_t *bg_timer;
 
 /* recolhe sem esperar; true se o processo acabou */
@@ -241,7 +250,7 @@ static bool reap_now(pid_t *p)
 }
 
 /* o sintonizador ainda está sendo liberado por um bftvd anterior */
-static bool tv_busy(void) { return bg_pid > 0 || off_pid > 0 || orphan_pid > 0 || bg_power_off; }
+static bool tv_busy(void) { return bg_pid > 0 || off_pid > 0 || orphans_left() || bg_power_off; }
 
 static void bg_tick(lv_timer_t *t)
 {
@@ -252,12 +261,13 @@ static void bg_tick(lv_timer_t *t)
         fprintf(stderr, "tv: o player não saiu em %d ms, encerrado à força\n", TV_TERM_MS);
     }
     /* o órfão não é filho: não dá para recolher, só ver se ainda existe */
-    if(orphan_pid > 0) {
-        if(kill(orphan_pid, 0) != 0) orphan_pid = 0;
-        else if(!orphan_killed && lv_tick_elaps(orphan_at) > TV_TERM_MS) { kill(orphan_pid, SIGKILL); orphan_killed = true; }
+    for(int i = 0; i < TV_ORPHANS; i++) {
+        if(orphan_pid[i] <= 0) continue;
+        if(kill(orphan_pid[i], 0) != 0) orphan_pid[i] = 0;
+        else if(!orphan_killed[i] && lv_tick_elaps(orphan_at[i]) > TV_TERM_MS) { kill(orphan_pid[i], SIGKILL); orphan_killed[i] = true; }
     }
     /* saiu (e nenhum órfão no sintonizador): desliga o sintonizador (economia) */
-    if(bg_pid <= 0 && orphan_pid <= 0 && bg_power_off && off_pid <= 0) {
+    if(bg_pid <= 0 && !orphans_left() && bg_power_off && off_pid <= 0) {
         bg_power_off = false;
         char bin[300];
         tv_file(bin, sizeof bin, "bftvd");
@@ -646,6 +656,10 @@ static void scan_start_if_free(void)
     char *av[] = { bin, "-f", fw, "-s", (char *)state_path(), "-S", out, NULL };
     tv_pid = tv_spawn(av);
     scanning = tv_pid > 0;
+    if(!scanning) {                                      /* não deu para começar: volta aos canais */
+        fprintf(stderr, "tv: a busca não começou (fork)\n");
+        show_view(V_CHANNELS);
+    }
 }
 
 static void on_scan(lv_event_t *e)
@@ -662,7 +676,7 @@ static void on_scan(lv_event_t *e)
      * sair, sem esperar aqui (antes: até 2 s com a tela parada) */
     want_scan = true;
     scanning = false;
-    tv_stop();
+    tv_release(false);                                   /* sai em segundo plano, com o SIGKILL no prazo */
     scan_start_if_free();
 }
 
@@ -1209,6 +1223,12 @@ void scr_tv_ensure_off(void)
         if(e->d_name[0] < '1' || e->d_name[0] > '9') continue;
         pid_t p = (pid_t)atoi(e->d_name);
         if(p == bg_pid || p == off_pid) continue;        /* já saindo pelo caminho normal */
+        int slot = -1;
+        for(int i = 0; i < TV_ORPHANS; i++) {
+            if(orphan_pid[i] == p) { slot = -2; break; }  /* já sendo encerrado */
+            if(orphan_pid[i] <= 0 && slot == -1) slot = i;
+        }
+        if(slot == -2) continue;
         char path[64], comm[32] = "";
         snprintf(path, sizeof path, "/proc/%d/comm", (int)p);
         FILE *f = fopen(path, "r");
@@ -1218,10 +1238,11 @@ void scr_tv_ensure_off(void)
         if(strcmp(comm, "bftvd")) continue;
         fprintf(stderr, "tv: player órfão %d encerrado (modo GPS)\n", (int)p);
         kill(p, SIGTERM);
-        orphan_pid = p;                                  /* o -O só depois de ele sumir */
-        orphan_at = lv_tick_get();
-        orphan_killed = false;
         found = true;
+        if(slot < 0) { kill(p, SIGKILL); continue; }     /* sem lugar para vigiar: não espera */
+        orphan_pid[slot] = p;                            /* o -O só depois de todos sumirem */
+        orphan_at[slot] = lv_tick_get();
+        orphan_killed[slot] = false;
     }
     closedir(d);
     if(found && have_player()) tv_release(true);

@@ -45,6 +45,12 @@ perfui (shell)                       bftvd / bfrp / webremote
   RGB565 com 5 bits de alfa, os três canais de uma vez.
 - **Custo:** a etiqueta tem ~180×30 pontos. A mistura lê do framebuffer (sem cache) só os pontos
   que ela cobre, uma vez por quadro.
+- **Quem redesenha só o que mudou** (o Big Remote Play pelo relay, o vídeo do Internet) precisa
+  refazer a área da etiqueta antes de misturar de novo, senão ela escurece a cada quadro sobre a
+  imagem parada e fica para trás ao sumir. `fbmark_poll` diz quando a marca apareceu, mudou ou
+  sumiu e qual área refazer (a antiga e a nova juntas); o `bfrp` redesenha sempre as linhas da
+  etiqueta e o quadro inteiro na mudança; o vídeo do Internet copia a união das áreas uma vez só.
+  Coberto por `tests/test_fbmark.c`.
 - **A cópia sai igual à da interface,** porque é a própria etiqueta renderizada pelo LVGL
   (`LV_USE_SNAPSHOT`, ligado em `lv_conf.h` e no gerador `tools/make_lv_conf.py`).
 - **Um ajuste de passagem no gerador:** ele estava dessincronizado do `lv_conf.h` versionado e

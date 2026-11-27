@@ -485,10 +485,10 @@ static uint32_t boost_at, tv_boost_at;
  * do bfphone, ou um aparelho conectado com ícone de telefone, que é o que o BlueZ informa). */
 static bool conn_bt, conn_phone;
 
-static void conn_update(void)
+static void conn_update(bool fresh)
 {
     static uint32_t at;
-    if(at && lv_tick_elaps(at) < 1000) return;
+    if(!fresh && at && lv_tick_elaps(at) < 1000) return;
     at = lv_tick_get();
     static bt_info_t b;
     static ph_info_t ph;
@@ -505,13 +505,18 @@ static void conn_update(void)
 
 #define MODE_GRACE_MS 15000              /* começo de um modo: o celular ainda pode conectar */
 
+/* o que fica: o app aberto, o Bluetooth com algo conectado, telefone e Bluetooth com o celular
+ * e, nos primeiros 15 s de um modo, o que ainda roda (perfpolicy.c, testado) */
+static unsigned holds_need(void)
+{
+    return perfpolicy_holds(mode_calc(), app_needs(nav_current().scr), hwkbd_bt_connected() || conn_bt,
+                            conn_phone, lv_tick_elaps(mode_since) < MODE_GRACE_MS, perfmode_paused());
+}
+
 static void holds_update(void)
 {
-    conn_update();
-    /* o que fica: o app aberto, o Bluetooth com algo conectado, telefone e Bluetooth com o celular
-     * e, nos primeiros 15 s de um modo, o que ainda roda (perfpolicy.c, testado) */
-    unsigned need = perfpolicy_holds(mode_calc(), app_needs(nav_current().scr), hwkbd_bt_connected() || conn_bt,
-                                     conn_phone, lv_tick_elaps(mode_since) < MODE_GRACE_MS, perfmode_paused());
+    conn_update(false);
+    unsigned need = holds_need();
     unsigned add = need & ~hold_now, drop = hold_now & ~need;
     if(add) {                                    /* o app está esperando: já */
         hold_now |= add;
@@ -523,7 +528,8 @@ static void holds_update(void)
         hold_drop_at = lv_tick_get() + HOLD_RELEASE_MS;
     } else if((int32_t)(lv_tick_get() - hold_drop_at) >= 0) {
         hold_dropping = false;
-        hold_now = need;
+        conn_update(true);                       /* soltar com o estado de agora: um celular que */
+        hold_now = holds_need();                 /* acabou de conectar não perde o telefone */
         perfmode_hold(hold_now);
     }
 }

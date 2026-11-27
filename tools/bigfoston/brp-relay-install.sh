@@ -13,6 +13,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 R=$(cd "$(dirname "$0")/../.." && pwd)
+B=${BIGFOSTON_BUILD:-$R/firmware/build}       # a mesma árvore de build-remoteplay.sh
 BIN=$HOME/.local/bin/bigfoston-brp-relay
 KEYS=$HOME/.config/bigfoston-brp-relay
 UNIT=$HOME/.config/systemd/user/bigfoston-brp-relay.service
@@ -23,7 +24,7 @@ if [ "${1:-}" = remove ]; then
     echo "relay removido (as chaves ficam em $KEYS)"
     exit 0
 fi
-[ -x "$R/firmware/build/remoteplay/bfrp-relay" ] || { echo "falta o relay: tools/bigfoston/build-remoteplay.sh"; exit 1; }
+[ -x "$B/remoteplay/bfrp-relay" ] || { echo "falta o relay: tools/bigfoston/build-remoteplay.sh"; exit 1; }
 mkdir -p "$HOME/.local/bin" "$(dirname "$UNIT")" "$KEYS"
 chmod 700 "$KEYS"
 if [ ! -s "$KEYS/key.pem" ]; then
@@ -32,7 +33,7 @@ if [ ! -s "$KEYS/key.pem" ]; then
     done
     chmod 600 "$KEYS"/*
 fi
-install -m 755 "$R/firmware/build/remoteplay/bfrp-relay" "$BIN"
+install -m 755 "$B/remoteplay/bfrp-relay" "$BIN"
 cat > "$UNIT" <<UNIT
 [Unit]
 Description=Big Remote Play para o FOSTON (relay de vídeo e som pela rede USB)

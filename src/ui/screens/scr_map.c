@@ -1801,6 +1801,7 @@ static void close_sheet(void)
 static void end_navigation(void)
 {
     N.navigating = N.simulate = N.rerouting = N.active = N.has_dest = N.waiting = 0;
+    N.req_id++;                                          /* uma rota ainda a caminho não volta a abrir o painel */
     free(N.al);
     N.al = NULL;
     free(N.lim);
@@ -1920,6 +1921,7 @@ static void ag_tick(lv_timer_t *t)
 {
     (void)t;
     if(!ag.btn || !ag.phase) { ag_detach(); ag_stop(); return; }   /* o painel fechou */
+    if(ag.phase == AG_GO && !pos_live) { ag_decline(); return; }   /* perdeu o GPS: espera o toque */
     ag_paint();
     if(lv_tick_elaps(ag.t0) < AG_MS) return;
     int ph = ag.phase, prof = ag.prof;
@@ -2478,7 +2480,8 @@ static void route_sheet(void)
     }
     /* contagem do Iniciar: continua de onde estava se o painel foi refeito (alternativas) */
     ag_watch(sh);
-    if(ag.phase == AG_GO || (settings()->map_autogo && pos_live && !N.navigating && !ag.go_declined && ag.phase == AG_NONE))
+    if(ag.phase == AG_GO && !pos_live) ag_decline();     /* perdeu o GPS: não inicia sozinho */
+    else if(ag.phase == AG_GO || (settings()->map_autogo && pos_live && !N.navigating && !ag.go_declined && ag.phase == AG_NONE))
         ag_bind(AG_GO, go_btn, go_lbl, go_stop);
 }
 
