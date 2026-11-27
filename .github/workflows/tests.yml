@@ -9,7 +9,7 @@ jobs:
   instalador:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Dependências (GTK 4, Libadwaita, Xvfb)
         run: |
           sudo apt-get update
@@ -24,7 +24,7 @@ jobs:
   protocolo:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Protocolo BFP (C do agente x Python) e FSP do Big Screen
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-pytest

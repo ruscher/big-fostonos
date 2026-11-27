@@ -81,7 +81,7 @@ env -u GTK_THEME xvfb-run -a -s "-screen 0 1280x1024x24" \
 
 ```bash
 make -C src/wince/agent host-test && python3 -m pytest -q tests/agent   # protocolo BFP (C ↔ Python)
-python3 -m pytest -q tests/bigscreen                                    # FSP do Big Screen
+python3 -m pytest -q tests/bigscreen                                    # FSP x Big Screen Monitor (pulado sem ../big-screen-monitor-display)
 make -C src/ui sim                                                      # a interface no PC (simulador SDL2; baixa o LVGL sozinho)
 ```
 
