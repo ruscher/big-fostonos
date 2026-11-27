@@ -4,6 +4,7 @@
 #   firmware/build.sh                 build de desenvolvimento (põe a sua chave SSH pública no root)
 #   firmware/build.sh --release       build público: sem chave SSH nenhuma; no fim monta o pacote
 #                                     dist/BigFoston-OS-FS707DC-<versão>.zip para o instalador
+#   firmware/build.sh --release --notes "texto"   o mesmo, com as notas da versão no manifest.json
 #   firmware/build.sh --config bigfoston_web_defconfig --out out-web   outras configurações
 #   firmware/build.sh -- menuconfig   repassa alvos ao make do Buildroot
 #
@@ -20,13 +21,15 @@ BR_SHA=5a59e7501b0b4ec52c41f4bfa79412320e0b37eae5f719605a258e8d0c6fc7fb
 CONFIG=bigfoston_fs707dc_defconfig
 OUT=out
 RELEASE=0
+NOTES=
 while [ $# -gt 0 ]; do
     case $1 in
         --release) RELEASE=1 ;;
+        --notes) NOTES=$2; shift ;;
         --config) CONFIG=$2; shift ;;
         --out) OUT=$2; shift ;;
         --) shift; break ;;
-        -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
         *) echo "opção desconhecida: $1 (veja --help)"; exit 2 ;;
     esac
     shift
@@ -60,5 +63,5 @@ echo "imagens: $B/$OUT/images/bigfoston"
 if [ "$RELEASE" = 1 ] && [ "$OUT" = out ]; then
     make -C "$R/src/wince/agent" all imports
     mkdir -p "$R/dist"
-    python3 "$R/installer/tools/make_release.py" --zip "$R/dist"
+    python3 "$R/installer/tools/make_release.py" --zip --notes "$NOTES" "$R/dist"
 fi

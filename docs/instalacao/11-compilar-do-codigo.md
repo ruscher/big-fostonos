@@ -34,7 +34,7 @@ make -C src/wince/agent preview       # a tela Dual Boot em PNG, no PC (precisa 
 
 ```bash
 firmware/build.sh                     # build de desenvolvimento
-firmware/build.sh --release           # imagem pública + dist/BigFoston-OS-FS707DC-<versão>.zip
+firmware/build.sh --release --notes "…"  # imagem pública + dist/BigFoston-OS-FS707DC-<versão>.zip (notas no manifest)
 firmware/build.sh -- menuconfig       # repassa alvos ao make do Buildroot
 ```
 
