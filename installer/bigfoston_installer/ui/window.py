@@ -24,9 +24,11 @@ from ..core.package import open_package
 from ..core.storage import Storage, blockers, warnings
 from .common import STATE_TEXT, Page, _, human_size, label, picture, run_bg, status_icon
 
-GITHUB = "https://github.com/ruscher/foston-monitor"
+GITHUB = "https://github.com/ruscher/big-fostonos"
 ISSUES = GITHUB + "/issues/new"
-DOCS = GITHUB + "/blob/main/docs/dual-boot.md"
+RELEASES = GITHUB + "/releases/latest"
+DOCS = GITHUB + "/blob/main/docs/instalacao/README.md"
+RESTORE_DOC = GITHUB + "/blob/main/docs/instalacao/05-restaurar-o-original.md"
 
 TERMS = _(
     "O BigFoston OS é um projeto independente e de código aberto, desenvolvido pela comunidade, sem vínculo "
@@ -56,20 +58,27 @@ GUIDE_INSTALL = (
     (_("Coloque o cartão no FOSTON"), _("No encaixe do cartão SD, com o aparelho desligado."), None),
     (_("Ligue o FOSTON"), _("O sistema original (Windows CE) aparece normalmente."), None),
     (_("Anote o caminho do GPS"), _("Em Ajustes → Caminho da navegação, anote (ou fotografe) o caminho atual do "
-                                    "navegador. Ele será guardado também pelo agente, mas a anotação ajuda a "
-                                    "voltar se algo sair errado."), None),
+                                    "navegador (por exemplo, uma pasta do iGO com IGO8.exe). Você vai trocá-lo pelo "
+                                    "agente no próximo passo, e é com essa anotação que o botão Navegação volta a "
+                                    "abrir o GPS depois."), None),
     (_("Aponte a navegação para o agente"), _("Ainda em Caminho da navegação, escolha o arquivo no cartão: "
                                               "pasta BigFoston → bfagent.exe. Confirme e volte ao menu."), None),
-    (_("Toque em Navegação"), _("O agente abre a tela Dual Boot. Toque em “Instalar o Dual Boot” e confirme: "
-                                "ele grava o BigFoston OS na memória interna e mostra o resultado."), "dual-boot.png"),
-    (_("Desligue e ligue"), _("Depois de instalado, ao ligar aparece a tela Dual Boot com a contagem: o "
-                              "BigFoston OS inicia sozinho, ou toque em Windows CE para ficar no sistema "
-                              "original."), "foto-bigfoston.jpg"),
+    (_("Toque em Navegação"), _("O agente abre a tela Dual Boot com o botão “Instalar o Dual Boot”. Toque nele e "
+                                "confirme em “Instalar”: ele grava o BigFoston OS na memória interna (cerca de 1 "
+                                "minuto) e mostra o resultado. Não desligue nesse momento."), "dual-boot-instalar.png"),
+    (_("Confira o resultado"), _("A mensagem “Dual Boot instalado” confirma que tudo foi gravado e conferido. "
+                                 "Toque em OK."), "dual-boot-instalado.png"),
+    (_("Desligue e ligue"), _("Ao ligar aparece a tela Dual Boot com a contagem de 12 segundos: o BigFoston OS "
+                              "inicia sozinho, ou toque em Windows CE para ficar no sistema original."),
+     "dual-boot-contagem.png"),
+    (_("Bem-vindo ao BigFoston OS"), _("A tela inicial do BigFoston OS aparece em uns 15 segundos. Para voltar ao "
+                                       "Windows CE a qualquer momento, use o botão de reset (furinho) ou desligue "
+                                       "e ligue e toque em Windows CE."), "bigfoston-inicio.png"),
 )
 GUIDE_UPDATE = (
     (_("Retire o cartão e coloque no FOSTON"), _("Com o aparelho desligado."), None),
     (_("Ligue o FOSTON"), _("A tela Dual Boot mostra “Preparando o início do BigFoston...” enquanto grava a "
-                            "versão nova na memória interna. Não desligue nesse momento."), "dual-boot.png"),
+                            "versão nova na memória interna. Não desligue nesse momento."), "dual-boot-atualizando.png"),
     (_("Confira a versão"), _("Depois que o BigFoston OS iniciar, veja em Ajustes → Sistema. O resultado da "
                               "atualização também fica no cartão, em BigFoston/update.log (APLICADA ou "
                               "RECUSADA)."), None),
@@ -262,8 +271,9 @@ class InstallerWindow(Adw.ApplicationWindow):
                     (lambda: self.push(self.version_page())) if in_flow else None)
         for dev in load_devices():
             row = Gtk.Box(spacing=18)
-            pic = picture("foston-fs707dc.png", 150, can_shrink=False)
+            pic = picture("foston-fs707dc.png", 150)
             pic.set_size_request(150, 150)
+            pic.set_valign(Gtk.Align.CENTER)
             row.append(pic)
             col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, valign=Gtk.Align.CENTER, hexpand=True)
             col.append(label(dev.name, ("title-2",)))
@@ -306,8 +316,13 @@ class InstallerWindow(Adw.ApplicationWindow):
     def version_page(self):
         page = Page(_("Versão do BigFoston OS"), "version", _("Continuar"), self.after_version)
         page.next_button.set_sensitive(self.state.package is not None)
-        page.add(label(_("Escolha o pacote da versão (o arquivo .zip baixado do GitHub Releases, ou a pasta "
-                         "dele). O instalador confere cada arquivo antes de usar."), ("dim-label",)))
+        page.add(label(_("Escolha o pacote da versão (o arquivo BigFoston-OS-FS707DC-<versão>.zip baixado do "
+                         "GitHub Releases, ou a pasta dele). O instalador confere cada arquivo antes de usar."),
+                       ("dim-label",)))
+        dl = Gtk.Button(label=_("Baixar a versão mais recente"), halign=Gtk.Align.START)
+        dl.add_css_class("flat")
+        dl.connect("clicked", lambda *_: self.open_uri(RELEASES))
+        page.add(dl)
         group = Adw.PreferencesGroup()
         row = Adw.ActionRow(title=_("Arquivo da versão"), subtitle=_("Nenhum escolhido"), activatable=True)
         row.add_prefix(Gtk.Image(icon_name="package-x-generic-symbolic"))
@@ -692,6 +707,7 @@ class InstallerWindow(Adw.ApplicationWindow):
                 return False
             t0["last"] = now
             stage.set_text(step.message)
+            bar.set_show_text(bool(step.total))     # pulsando (sem total), um "100 %" mentiria
             if step.total:
                 frac = step.done / step.total
                 bar.set_fraction(frac)
@@ -706,6 +722,7 @@ class InstallerWindow(Adw.ApplicationWindow):
                 detail.set_text(txt)
             else:
                 bar.pulse()
+                detail.set_text("")
             if step.stage == "commit":
                 page.next_button.set_sensitive(False)
                 page.next_button.set_tooltip_text(_("Trocando os nomes dos arquivos: não dá para parar agora."))
@@ -877,9 +894,11 @@ class InstallerWindow(Adw.ApplicationWindow):
         levels = (
             ("1", _("Usar o Windows CE agora"), _("Ligue o FOSTON e, na tela Dual Boot, toque em Windows CE. Nada é "
                                                  "apagado; da próxima vez a escolha aparece de novo.")),
-            ("2", _("Desativar o BigFoston OS"), _("Na tela Dual Boot, toque em “Restaurar o FOSTON original”: o "
-                                                  "agente desfaz o início automático, volta o caminho da navegação "
-                                                  "guardado e mantém os arquivos no cartão para usar depois.")),
+            ("2", _("Desativar o BigFoston OS"), _("Na tela Dual Boot, toque em “Restaurar o original” (no alto, à "
+                                                  "direita) e confirme: o agente desfaz o início automático, apaga a "
+                                                  "pasta BigFoston da memória interna e mantém os arquivos no cartão. "
+                                                  "Depois, em Ajustes → Caminho da navegação, escolha de novo o "
+                                                  "navegador GPS que você anotou.")),
             ("3", _("Remover tudo"), _("Depois do nível 2, tire do cartão o que o instalador gravou (abaixo). Seus "
                                       "mapas, músicas e o navegador GPS continuam lá.")),
         )
@@ -900,7 +919,11 @@ class InstallerWindow(Adw.ApplicationWindow):
         b.set_sensitive(self.storage is not None)
         page.add(b)
         page.add(label(_("Se o FOSTON mostrar a porta serial em vez do pendrive no computador: Ajustes → USB → "
-                         "MASS STORAGE. Guia completo: docs/17-recuperacao.md no GitHub."), ("dim-label", "caption")))
+                         "MASS STORAGE."), ("dim-label", "caption")))
+        guide = Gtk.Button(label=_("Guia completo de restauração"), halign=Gtk.Align.START)
+        guide.add_css_class("flat")
+        guide.connect("clicked", lambda *_: self.open_uri(RESTORE_DOC))
+        page.add(guide)
         return page
 
     def clean_card(self):

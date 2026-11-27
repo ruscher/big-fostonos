@@ -4,6 +4,7 @@ criar o loop sem perguntar; BIGFOSTON_TEST_POLKIT=1 deixa perguntar. SPDX-Licens
 """
 import os
 import re
+import shutil
 import subprocess
 import time
 
@@ -16,6 +17,9 @@ from bigfoston_installer.core.storage import blockers
 
 @pytest.fixture
 def loop_card(tmp_path, monkeypatch):
+    for tool in ("udisksctl", "mkfs.fat"):
+        if not shutil.which(tool):
+            pytest.skip(f"{tool} não instalado")
     img = str(tmp_path / "sd.img")
     with open(img, "wb") as f:
         f.truncate(64 << 20)
