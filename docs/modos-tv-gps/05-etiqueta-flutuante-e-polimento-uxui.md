@@ -131,7 +131,8 @@ O texto do diálogo passou de 300 para 512 bytes: o motivo do modo GPS com a dic
 ## Aviso ao entrar num modo
 
 Ao entrar no modo TV ou GPS, a própria etiqueta acende por 3 s com o que pausou e depois volta a
-ser a marca d'água:
+ser a marca d'água. Ela espera o modo terminar de parar os serviços (uns 3 a 5 s depois de abrir a
+TV ou o mapa), para não dizer "pausado" de algo que ainda roda:
 
 ![Modo TV: a etiqueta acesa por 3 s e de volta à marca d'água](../images/modos-tv-gps/etiqueta-aviso-modo-tv.png)
 
@@ -142,11 +143,12 @@ ser a marca d'água:
 - **Na etiqueta, e não num aviso à parte:** um aviso comum fica na camada de cima. Na TV, isso
   pausaria o desenho do vídeo justamente na entrada (o diálogo por cima, acima), e o player o
   apagaria. A etiqueta já é ignorada nessa conta e já vai para cima do vídeo (`fbmark`).
-- **O texto** é o mesmo do resumo de Ajustes (`perfui_svc_names`, usado pelas duas telas): o que
-  o modo pausa menos o que ficou por estar conectado. Se não couber na cópia para o vídeo
-  (`FBMARK_MAX_W`), sai o "Pausado:".
-- **Só uma vez por entrada.** Se o modo não ligar em 5 s (desativado, por exemplo), o aviso não
-  aparece depois fora de hora. Com a etiqueta desligada em Ajustes, também não.
+- **O texto** é o mesmo do resumo de Ajustes: o que o modo de fato parou (`perfmode_paused`),
+  escrito por `perfui_svc_names`, usado pelas duas telas. O que ficou por estar conectado, ou já
+  estava desligado antes, não aparece. Se não couber na cópia para o vídeo (`FBMARK_MAX_W`), sai o
+  "Pausado:".
+- **Só uma vez por entrada.** Se o modo não assentar em 15 s (desativado, por exemplo), o aviso
+  não aparece depois fora de hora. Com a etiqueta desligada em Ajustes, também não.
 
 ## Vigia do shell travado
 

@@ -59,7 +59,7 @@ JavaScript novos; os equivalentes para C e shell são os abaixo.
 | 14e | Big Remote Play e vídeo em tela cheia do Internet | a etiqueta misturada na imagem | **compilado e instalado (`bfrp` idêntico ao build), não exercitado**: precisa de uma sessão de jogo (Sunshine) ou do navegador pelo PC |
 | 15 | Redesenho na TV, A/B com o binário antigo | menos trabalho | 60 → 7–8 quadros em 20 s; laço p95 24 → 2 ms |
 | 17 | `bftvd` órfão (iniciado pelo SSH, fora do shell, tocando) e abrir o Big GPS | modo GPS desliga a TV | encerrado na abertura do mapa ("tv: player órfão … encerrado"); o `-O` só depois de ele sumir |
-| 18 | Aviso ao entrar num modo (TV, depois TV → mapa) | a etiqueta acende 3 s com o que pausou | "Modo TV · Pausado: GPS, tarefas" e "Modo GPS · Pausado: tarefas" (celular conectado), de volta à marca d'água; a TV não pausou o desenho |
+| 18 | Aviso ao entrar num modo (TV, depois TV → mapa) | a etiqueta acende 3 s com o que pausou, depois de pausado | "Modo TV · Pausado: GPS, tarefas" e "Modo GPS · Pausado: tarefas" (celular conectado), de volta à marca d'água; na TV apareceu ~5 s depois de abrir, com o `bfgps` já parado; a TV não pausou o desenho |
 | 19 | Vigia do shell: `hang 60` no canal de controle | o shell é reiniciado | saiu aos 50 s com o código 70 e o motivo no log; voltou sozinho. Pior volta do laço em uso normal: 537 ms |
 | 16 | Logs depois de toda a bateria | sem erro | shell: nenhuma linha nova de erro; kernel: sem OOM, segfault ou trava; 15 reinícios do shell, todos com código 0 (as instalações dos testes) |
 

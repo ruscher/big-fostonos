@@ -58,7 +58,7 @@ CFLAGS="-O2 -march=armv6 -mfloat-abi=soft -pipe -D_GNU_SOURCE -DHAS_SOCKLEN_T -D
 FF=$B/ffmpeg-tv/inst                      # FFmpeg mínimo da TV (build-tv.sh): o mesmo H.264
 [ -f "$FF/lib/libavcodec.a" ] || { echo "falta $FF (tools/bigfoston/build-tv.sh)"; exit 1; }
 OP=$B/opus-arm/inst                       # libopus 1.6.1 em ponto fixo (som do Sunshine), ver docs/remote-play/10
-if [ ! -f "$OP/lib/libopus.a" ]; then
+if [ ! -f "$OP/lib/libopus.a" ] || [ ! -f "$OP/include/opus/opus.h" ]; then
     # o pacote-fonte do Buildroot (conferido pelo hash dele): make opus-source no Buildroot
     OT=$B/dl/opus/opus-1.6.1.tar.gz
     [ -f "$OT" ] || { echo "falta $OT (make opus-source no Buildroot)"; exit 1; }
@@ -69,7 +69,8 @@ if [ ! -f "$OP/lib/libopus.a" ]; then
      ./configure --host=arm-buildroot-linux-musleabi CC="$CC" CFLAGS="-O2" \
          --prefix="$OP" --enable-static --disable-shared \
          --enable-fixed-point --disable-intrinsics --disable-doc --disable-extra-programs > ../configure.log &&
-     make -j"$(nproc 2>/dev/null || echo 4)" install > ../make.log)
+     make -j"$(nproc 2>/dev/null || echo 4)" install > ../make.log) ||
+        { rm -rf "$OP"; echo "a libopus não compilou: $B/opus-arm/*.log"; exit 1; }   # sem instalação pela metade
 fi
 INC="-I$OP/include -I$FF/include -I$R/src/remoteplay -I$W/gs -I$C/src -I$C/enet/include -I$C/nanors -I$C/nanors/deps -I$C/nanors/deps/obl \
  -I$SR/usr/include -I$R/src/ui/core"

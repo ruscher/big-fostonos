@@ -350,7 +350,8 @@ static void tag_deleted(lv_event_t *e)
 #define TAG_Y   (BF_TOPBAR_H + 6)
 #define TAG_OPA 77                       /* ~30 %: dá para achar, não atrapalha o que está por baixo */
 #define BRIEF_MS 3000                    /* o aviso de entrada num modo, na própria etiqueta */
-#define BRIEF_WAIT_MS 5000               /* o modo não ligou nesse prazo: o aviso não vale mais */
+#define BRIEF_WAIT_MS 15000              /* o modo não assentou nesse prazo: o aviso não vale mais */
+#define BRIEF_SETTLE_MS 1000             /* a thread do perfmode já pegou o alvo novo */
 static bool mark_on;                     /* FBMARK_PATH gravado por este shell */
 static lv_opa_t tag_opa = TAG_OPA;       /* a transparência de agora (o aviso a acende) */
 static bool brief_want, brief_on;        /* aviso pedido (entrou num modo) / à mostra */
@@ -640,13 +641,14 @@ static void pad_update(void)
 }
 
 /* Aviso de entrada num modo, na própria etiqueta: ela acende por BRIEF_MS com o que pausou
- * ("Modo TV · Pausado: GPS, tarefas") e volta à marca d'água. Na etiqueta, e não num aviso à
+ * ("Modo TV · Pausado: GPS, tarefas") e volta à marca d'água. Só depois de o perfmode terminar
+ * de parar os serviços (uns 3 s): antes, diria "pausado" de algo que ainda roda. Na etiqueta, e não num aviso à
  * parte, porque ela já aparece por cima do vídeo e não conta como algo aberto por cima da TV
  * (um aviso comum pausaria o desenho da TV justamente na entrada). */
 static void brief_start(void)
 {
     char names[96], list[128], text[160];
-    perfui_svc_names(svc_now() & ~hold_now, names, sizeof names);
+    perfui_svc_names(perfmode_paused(), names, sizeof names);   /* o que de fato parou, como em Ajustes */
     if(names[0]) snprintf(list, sizeof list, tr(S_PERFM_PAUSED_LIST), names);
     else snprintf(list, sizeof list, "%s", tr(S_PERFM_NONE_PAUSED));
     int fmt = mode_cur == PERF_MODE_GPS ? S_PERFM_BRIEF_GPS : S_PERFM_BRIEF_TV;
@@ -709,7 +711,13 @@ static void tick(lv_timer_t *t)
     else if(!show) tag_hide_now();
     /* o aviso de entrada num modo (brief_start) */
     if(brief_want && (!settings()->perf_tag || lv_tick_elaps(brief_req_at) > BRIEF_WAIT_MS)) brief_want = false;
-    if(show && brief_want && mode_cur != PERF_MODE_NONE) { brief_want = false; brief_start(); }
+    int pd, pt;
+    perfmode_progress(&pd, &pt);
+    if(show && brief_want && mode_cur != PERF_MODE_NONE && st == PM_ON && pd >= pt &&
+       lv_tick_elaps(brief_req_at) >= BRIEF_SETTLE_MS) {
+        brief_want = false;
+        brief_start();
+    }
     else if(brief_on && lv_tick_elaps(brief_at) > BRIEF_MS) brief_end();
 }
 
