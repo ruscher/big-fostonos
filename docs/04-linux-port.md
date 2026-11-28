@@ -141,4 +141,4 @@ e a conexão `bigfoston` do NetworkManager o usa, em qualquer porta USB (conferi
 `/dev/ttyACM0`; no PC, `192.168.7.1/24` na interface `cdc_ether`.
 
 O estado de cada linha é atualizado conforme os testes no aparelho
-([15-testes.md](15-testes.md)).
+([implementation-status.md](implementation-status.md)).

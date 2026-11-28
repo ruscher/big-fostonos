@@ -21,6 +21,7 @@
 #include "core/screenshot.h"
 #include "core/touch_calib.h"
 #include "core/nav.h"
+#include "core/watchdog.h"
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -211,7 +212,11 @@ int main(int argc, char **argv)
     hwkbd_init();                                     /* teclado Bluetooth/USB em qualquer tela */
 
     perf_init(disp);
+#ifdef BIGFOSTON_TARGET
+    watchdog_start(WATCHDOG_LIMIT_S);                 /* laço parado: sai e o S90bigfoston-shell reinicia */
+#endif
     for(;;) {
+        watchdog_beat();
         uint64_t t0 = perf_now_us();
         uint32_t idle = lv_timer_handler();
         perf_add(PERF_LOOP, (uint32_t)(perf_now_us() - t0));

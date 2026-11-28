@@ -1111,6 +1111,8 @@ X(S_PERFM_PAUSED_LIST,"perfm.paused_list","Pausado: %s", "Paused: %s", "En pausa
 X(S_PERFM_NONE_PAUSED,"perfm.none_paused","Nada pausado", "Nothing paused", "Nada en pausa")
 X(S_PERFM_KEPT,      "perfm.kept",      "mantido (conectado): %s", "kept (connected): %s", "mantenido (conectado): %s")
 X(S_PERFM_TASKS,     "perfm.tasks",     "tarefas", "tasks", "tareas")
+X(S_PERFM_BRIEF_TV,  "perfm.brief_tv",  "Modo TV \xC2\xB7 %s", "TV mode \xC2\xB7 %s", "Modo TV \xC2\xB7 %s")
+X(S_PERFM_BRIEF_GPS, "perfm.brief_gps", "Modo GPS \xC2\xB7 %s", "GPS mode \xC2\xB7 %s", "Modo GPS \xC2\xB7 %s")
 X(S_TV_ON_FOSTON,    "tv.on_foston",    "Decodificado no FOSTON", "Decoded on the FOSTON", "Decodificado en el FOSTON")
 X(S_MAP_AUTO_PROF,   "map.auto_prof",   "Selecionando %s em %d s", "Selecting %s in %d s", "Seleccionando %s en %d s")
 X(S_MAP_AUTO_HINT,   "map.auto_hint",   "Toque em outro para trocar", "Tap another one to change", "Toque otro para cambiar")

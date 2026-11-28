@@ -100,6 +100,7 @@ teclados), menos quando há um diálogo ou a janela de progresso: esses ficam po
 | Borda | 1 px `#e66100`, a cor do modo em todo o sistema |
 | Ícone e texto | ⚡ na cor do modo; "Modo performance" (pt), "Performance mode" (en), "Modo rendimiento" (es), Montserrat 14, branco |
 | Entrada | desce 6 px e acende até 30 % em 220 ms, quando as animações valem; nos modos TV e GPS, na hora |
+| Aviso de modo | ao entrar no modo TV ou GPS, acende 100 % por 3 s com o que pausou e volta à marca d'água (abaixo) |
 | Saída | imediata |
 
 **No tema claro** ela fica mais apagada (branco a 30 % sobre claro). É o comportamento pedido
@@ -127,8 +128,41 @@ O texto do diálogo passou de 300 para 512 bytes: o motivo do modo GPS com a dic
 - **Rodapé da TV:** "Decodificado no PC" ou "Decodificado no FOSTON".
 - **Barra de cima** sem redesenho à toa em todas as telas (etapa 3).
 
-## Sugestões para depois (não feitas)
+## Aviso ao entrar num modo
 
-- **Aviso curto ao entrar num modo** ("Modo TV: GPS e tarefas pausados").
-- **Vigia do shell travado:** o `S90bigfoston-shell` reinicia o shell que sai, não o que trava.
-  Precisa auditar antes as operações longas que ainda rodam no laço.
+Ao entrar no modo TV ou GPS, a própria etiqueta acende por 3 s com o que pausou e depois volta a
+ser a marca d'água:
+
+![Modo TV: a etiqueta acesa por 3 s e de volta à marca d'água](../images/modos-tv-gps/etiqueta-aviso-modo-tv.png)
+
+![Modo GPS (da TV para o mapa): só as tarefas, com o celular conectado](../images/modos-tv-gps/etiqueta-aviso-modo-gps.png)
+
+(Capturas seguidas do FOSTON, recortadas no topo.)
+
+- **Na etiqueta, e não num aviso à parte:** um aviso comum fica na camada de cima. Na TV, isso
+  pausaria o desenho do vídeo justamente na entrada (o diálogo por cima, acima), e o player o
+  apagaria. A etiqueta já é ignorada nessa conta e já vai para cima do vídeo (`fbmark`).
+- **O texto** é o mesmo do resumo de Ajustes (`perfui_svc_names`, usado pelas duas telas): o que
+  o modo pausa menos o que ficou por estar conectado. Se não couber na cópia para o vídeo
+  (`FBMARK_MAX_W`), sai o "Pausado:".
+- **Só uma vez por entrada.** Se o modo não ligar em 5 s (desativado, por exemplo), o aviso não
+  aparece depois fora de hora. Com a etiqueta desligada em Ajustes, também não.
+
+## Vigia do shell travado
+
+O `S90bigfoston-shell` reinicia o shell que **sai**. Um shell **travado** (laço parado) deixava a
+tela congelada, e no carro só desligando. Agora uma thread do próprio shell (`core/watchdog.c`)
+confere a cada 5 s se o laço principal continua girando; parado por 45 s, ela registra o motivo e
+encerra o processo (código 70), e o `S90bigfoston-shell` o reinicia.
+
+- **Sem custo:** nenhum processo novo, só um contador lido a cada 5 s. Um vigia em script
+  precisaria de um processo por segundo (o BusyBox do aparelho não tem `stat`), o mesmo tipo de
+  custo que foi tirado do `S10bigfoston`.
+- **Folga:** a pior volta do laço medida no aparelho (abrir o mapa, abrir e fechar a TV, Ajustes)
+  foi de 537 ms; o limite é uns 80× isso.
+- **O vídeo não fica órfão:** o `bftvd` sai junto com o shell (`PR_SET_PDEATHSIG`).
+- **Para depurar** com o laço parado (gdb), `BIGFOSTON_NO_WATCHDOG=1`. Só no aparelho: o
+  simulador não tem vigia.
+- **Teste:** `echo "hang 60" > /run/bigfoston/ctl` para o laço por 60 s. Medido: o shell saiu aos
+  50 s (45 s mais a conferência de 5 s), com "laço parado há 45 s, reiniciando" no
+  `/var/log/bigfoston-shell.log` e no `dmesg`, e voltou sozinho.

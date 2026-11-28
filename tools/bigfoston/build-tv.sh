@@ -5,10 +5,13 @@
 #
 #   tools/bigfoston/build-tv.sh            -> firmware/build/ffmpeg-tv/bftvd (e bftv)
 #
-# Precisa dos dois toolchains do Buildroot já compilados: firmware/build/out (C) e
-# firmware/build/out-cxx (com C++), e dos pacotes-fonte em firmware/build/dl/{ffmpeg,fdk-aac}
-# (o Buildroot baixa ao compilar com esses pacotes; ou baixe à mão de ffmpeg.org e do
-# github.com/mstorsjo/fdk-aac). O bftvd vai para o cartão: BigFoston/tv/bftvd (docs/tv).
+# Precisa dos dois toolchains do Buildroot já compilados: firmware/build/out (C, firmware/build.sh)
+# e firmware/build/out-cxx (com C++:
+#   firmware/build.sh --config bigfoston_cxx_defconfig --out out-cxx -- toolchain),
+# e dos pacotes-fonte em firmware/build/dl/{ffmpeg,fdk-aac}, baixados e conferidos pelo Buildroot:
+#   make -C firmware/build/buildroot-2026.02.3 O=<pasta> BR2_EXTERNAL=firmware/buildroot \
+#        bigfoston_web_defconfig ffmpeg-source fdk-aac-source opus-source   (BR2_DL_DIR=firmware/build/dl)
+# O bftvd vai para o cartão: BigFoston/tv/bftvd (docs/tv).
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 R=$(cd "$(dirname "$0")/../.." && pwd)

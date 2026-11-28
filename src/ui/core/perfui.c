@@ -349,7 +349,12 @@ static void tag_deleted(lv_event_t *e)
 #define TAG_H   30
 #define TAG_Y   (BF_TOPBAR_H + 6)
 #define TAG_OPA 77                       /* ~30 %: dá para achar, não atrapalha o que está por baixo */
+#define BRIEF_MS 3000                    /* o aviso de entrada num modo, na própria etiqueta */
+#define BRIEF_WAIT_MS 5000               /* o modo não ligou nesse prazo: o aviso não vale mais */
 static bool mark_on;                     /* FBMARK_PATH gravado por este shell */
+static lv_opa_t tag_opa = TAG_OPA;       /* a transparência de agora (o aviso a acende) */
+static bool brief_want, brief_on;        /* aviso pedido (entrou num modo) / à mostra */
+static uint32_t brief_req_at, brief_at;
 
 static void tag_make(void)
 {
@@ -386,7 +391,7 @@ static void mark_write(void)
     lv_obj_update_layout(tag);
     lv_obj_set_style_opa(tag, LV_OPA_COVER, 0);          /* a cópia sai inteira; o alfa vai abaixo */
     lv_draw_buf_t *db = lv_snapshot_take(tag, LV_COLOR_FORMAT_ARGB8888);
-    lv_obj_set_style_opa(tag, TAG_OPA, 0);
+    lv_obj_set_style_opa(tag, tag_opa, 0);
     if(!db) return;
     lv_area_t c;
     lv_obj_get_coords(tag, &c);
@@ -401,7 +406,7 @@ static void mark_write(void)
             for(int i = 0; i < w; i++) {
                 const uint8_t *p = row + i * 4;              /* B G R A */
                 px[j * w + i] = (uint16_t)((p[2] >> 3) << 11 | (p[1] >> 2) << 5 | p[0] >> 3);
-                al[j * w + i] = (uint8_t)((p[3] * TAG_OPA * 32 + 255 * 255 / 2) / (255 * 255));
+                al[j * w + i] = (uint8_t)((p[3] * tag_opa * 32 + 255 * 255 / 2) / (255 * 255));
             }
         }
         FILE *f = fopen(FBMARK_PATH ".new", "wb");
@@ -447,11 +452,27 @@ static void tag_hide_now(void)
     if(mark_on) { unlink(FBMARK_PATH); mark_on = false; }   /* some também de cima do vídeo */
     if(!tag || lv_obj_has_flag(tag, LV_OBJ_FLAG_HIDDEN)) return;
     lv_anim_delete(tag, NULL);
+    if(brief_on) { brief_on = false; lv_label_set_text(tag_lbl, tr(S_PERFM_TAG)); }
+    tag_opa = TAG_OPA;
     lv_obj_set_style_opa(tag, TAG_OPA, 0);
     lv_obj_add_flag(tag, LV_OBJ_FLAG_HIDDEN);
 }
 
 lv_obj_t *perfui_tag_obj(void) { return tag; }
+
+void perfui_svc_names(unsigned g, char *b, size_t n)
+{
+    static const struct { unsigned bit; int s; const char *fixed; } names[] = {
+        { PM_SVC_GPS, -1, "GPS" }, { PM_SVC_BT, -1, "Bluetooth" },
+        { PM_SVC_PHONE, S_PERFM_PHONE, NULL }, { PM_SVC_CRON, S_PERFM_TASKS, NULL },
+    };
+    b[0] = 0;
+    for(size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+        if(!(g & names[i].bit)) continue;
+        size_t k = strlen(b);
+        snprintf(b + k, n - k, "%s%s", k ? ", " : "", names[i].fixed ? names[i].fixed : tr(names[i].s));
+    }
+}
 
 /* ---------------------------------------------------------------- apps e controle */
 
@@ -582,7 +603,12 @@ static void quiet_flag(bool want)
 static void mode_refresh(void)
 {
     perf_mode_t m = mode_calc();
-    if(m != mode_cur) { mode_cur = m; mode_since = lv_tick_get(); }
+    if(m != mode_cur) {
+        mode_cur = m;
+        mode_since = lv_tick_get();
+        brief_want = m != PERF_MODE_NONE;        /* entrou num modo: a etiqueta avisa (brief_start) */
+        brief_req_at = mode_since;
+    }
     holds_update();
 }
 
@@ -611,6 +637,43 @@ static void pad_update(void)
     if(manual || (video && !suppressed && settings()->perf_auto)) return;   /* outro motivo segura */
     /* o controle saiu: desliga já (esperar perf_exit_s só pausava e religava serviços à toa) */
     schedule(pad ? PAD_ENTER_MS : 0);
+}
+
+/* Aviso de entrada num modo, na própria etiqueta: ela acende por BRIEF_MS com o que pausou
+ * ("Modo TV · Pausado: GPS, tarefas") e volta à marca d'água. Na etiqueta, e não num aviso à
+ * parte, porque ela já aparece por cima do vídeo e não conta como algo aberto por cima da TV
+ * (um aviso comum pausaria o desenho da TV justamente na entrada). */
+static void brief_start(void)
+{
+    char names[96], list[128], text[160];
+    perfui_svc_names(svc_now() & ~hold_now, names, sizeof names);
+    if(names[0]) snprintf(list, sizeof list, tr(S_PERFM_PAUSED_LIST), names);
+    else snprintf(list, sizeof list, "%s", tr(S_PERFM_NONE_PAUSED));
+    int fmt = mode_cur == PERF_MODE_GPS ? S_PERFM_BRIEF_GPS : S_PERFM_BRIEF_TV;
+    snprintf(text, sizeof text, tr(fmt), list);
+    /* a etiqueta inteira precisa caber na cópia para o vídeo (FBMARK_MAX_W, com o ícone e as
+     * margens): longa demais, sai o "Pausado:" */
+    lv_point_t sz;
+    const lv_font_t *f = lv_obj_get_style_text_font(tag_lbl, 0);
+    lv_text_get_size(&sz, text, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    if(sz.x > FBMARK_MAX_W - 80 && names[0]) snprintf(text, sizeof text, tr(fmt), names);
+    lv_anim_delete(tag, NULL);
+    lv_obj_set_style_translate_y(tag, 0, 0);
+    lv_label_set_text(tag_lbl, text);
+    tag_opa = LV_OPA_COVER;
+    lv_obj_set_style_opa(tag, tag_opa, 0);
+    brief_on = true;
+    brief_at = lv_tick_get();
+    mark_write();
+}
+
+static void brief_end(void)
+{
+    brief_on = false;
+    lv_label_set_text(tag_lbl, tr(S_PERFM_TAG));
+    tag_opa = TAG_OPA;
+    lv_obj_set_style_opa(tag, tag_opa, 0);
+    mark_write();
 }
 
 static void tick(lv_timer_t *t)
@@ -644,6 +707,10 @@ static void tick(lv_timer_t *t)
             !dialog_is_open())
         lv_obj_move_foreground(tag);                    /* algo novo na camada (tela cheia): por cima de novo */
     else if(!show) tag_hide_now();
+    /* o aviso de entrada num modo (brief_start) */
+    if(brief_want && (!settings()->perf_tag || lv_tick_elaps(brief_req_at) > BRIEF_WAIT_MS)) brief_want = false;
+    if(show && brief_want && mode_cur != PERF_MODE_NONE) { brief_want = false; brief_start(); }
+    else if(brief_on && lv_tick_elaps(brief_at) > BRIEF_MS) brief_end();
 }
 
 void perfui_init(void)

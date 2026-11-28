@@ -53,5 +53,6 @@ bool       perfui_video_playing(void);
 void       perfui_settings_changed(void);/* depois de mudar um ajuste perf_* */
 /* o objeto da etiqueta (NULL se não existe): a TV não conta com ela para sair da tela cheia */
 lv_obj_t  *perfui_tag_obj(void);
+void       perfui_svc_names(unsigned groups, char *out, size_t n);   /* "GPS, Bluetooth, …" */
 void       perfui_dialog(void);          /* o que a etiqueta abre: Desativar / Configurar / Fechar */
 #endif
