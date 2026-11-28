@@ -1,7 +1,9 @@
-/* test_padhold.c — aperto e intervalo mínimos dos botões do controle no Big Remote Play
- * (remoteplay/padhold.h): o que o Sunshine recebe quando o aperto e a soltura chegam juntos.
+/* test_padhold.c — os botões do controle no Big Remote Play sem toque perdido: o aperto e o
+ * intervalo mínimos do relay (remoteplay/padhold.h), com o que o Sunshine recebe quando as
+ * trocas chegam juntas, e a fila de trocas da tela entre duas leituras (core/tapqueue.h).
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "../remoteplay/padhold.h"
+#include "core/tapqueue.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -71,6 +73,22 @@ int main(void)
     expect("guardado: apertou aos 84", o[2], 85);
     expect("guardado: soltou aos 118", o[3], -119);
 
+    /* duas vezes apertar-e-soltar no mesmo instante: dois apertos, em ordem, 34 ms cada estado */
+    k = run((ev_t[]){ { 0, B }, { 0, 0 }, { 0, B }, { 0, 0 } }, 4, o, 8);
+    expect("dois juntos: mudanças", k, 4);
+    expect("dois juntos: apertou", o[0], 1);
+    expect("dois juntos: soltou aos 34", o[1], -35);
+    expect("dois juntos: apertou aos 68", o[2], 69);
+    expect("dois juntos: soltou aos 102", o[3], -103);
+
+    /* aperto que chega com a soltura ainda na fila: não é fundido no anterior */
+    k = run((ev_t[]){ { 100, B }, { 105, 0 }, { 110, B }, { 120, 0 } }, 4, o, 8);
+    expect("na fila: mudanças", k, 4);
+    expect("na fila: apertou aos 100", o[0], 101);
+    expect("na fila: soltou aos 134", o[1], -135);
+    expect("na fila: apertou aos 168", o[2], 169);
+    expect("na fila: soltou aos 202", o[3], -203);
+
     /* aperto comum, longo: passa igual, sem atraso */
     k = run((ev_t[]){ { 0, B }, { 150, 0 } }, 2, o, 8);
     expect("comum: mudanças", k, 2);
@@ -85,6 +103,34 @@ int main(void)
     padhold_reset(&h);
     expect("reset: nada apertado", padhold_step(&h, 0, 5000, &wait), 0);
     expect("reset: nada a esperar", wait, -1);
+
+    /* a fila da tela: leituras a cada 8 ms, dois toques entre duas leituras */
+    bool taken = false;
+    uint8_t q = 0;
+    tapq_change(&q); tapq_change(&q);                    /* toque 1 antes da leitura de 8 ms */
+    expect("leitura 8: apertado", tapq_take(&taken, &q), 1);
+    tapq_change(&q); tapq_change(&q);                    /* toque 2 aos 10-11 ms */
+    expect("leitura 16: solto (fim do toque 1)", tapq_take(&taken, &q), 0);
+    expect("leitura 24: apertado (toque 2)", tapq_take(&taken, &q), 1);
+    expect("leitura 32: solto", tapq_take(&taken, &q), 0);
+    expect("leitura 40: segue solto", tapq_take(&taken, &q), 0);
+
+    /* segurado: soltar e apertar de novo entre duas leituras vem solto numa e apertado na outra */
+    taken = false; q = 0;
+    tapq_change(&q);
+    expect("segurado: apertado", tapq_take(&taken, &q), 1);
+    expect("segurado: continua", tapq_take(&taken, &q), 1);
+    tapq_change(&q); tapq_change(&q);
+    expect("segurado: solto uma vez", tapq_take(&taken, &q), 0);
+    expect("segurado: apertado de novo", tapq_take(&taken, &q), 1);
+
+    /* fila cheia: o último estado vale (perde toques inteiros, nunca fica trocado) */
+    taken = false; q = 0;
+    for(int i = 0; i < 21; i++) tapq_change(&q);         /* 21 trocas: termina apertado */
+    bool last = false;
+    for(int i = 0; i < 20; i++) last = tapq_take(&taken, &q);
+    expect("cheia: termina apertado", last, 1);
+    expect("cheia: fila vazia", q, 0);
 
     if(fails) return 1;
     puts("padhold: ok");

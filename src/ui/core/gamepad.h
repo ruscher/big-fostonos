@@ -58,9 +58,10 @@ typedef struct {
 } gp_info_t;
 
 bool gamepad_info(int slot, gp_info_t *out);
-/* os botões para quem lê de tempos em tempos (o Big Remote Play, a cada 8 ms): um toque que
- * apertou e soltou desde a leitura anterior vem apertado uma vez, e um que soltou e apertou de
- * novo vem solto uma vez. Um leitor só por controle: cada leitura consome o que aconteceu. */
+/* os botões para quem lê de tempos em tempos (o Big Remote Play, a cada 8 ms): cada leitura
+ * entrega a próxima troca de cada botão, na ordem, e o que não foi entregue fica para a seguinte
+ * (tapqueue.h): um toque entre duas leituras vem apertado numa e solto na outra. Um leitor só
+ * por controle: cada leitura consome o que entrega. */
 bool gamepad_buttons_take(int slot, bool out[PC__NBTN]);
 const pm_bits_t *gamepad_bits(int slot);
 /* captura (testador e registro): o controle não mexe na interface; obs recebe cada evento cru

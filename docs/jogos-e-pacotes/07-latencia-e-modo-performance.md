@@ -94,13 +94,14 @@ valendo: o kernel recebe o descritor do próprio `bluetoothd`.
 **Toque perdido.** O B martelado (soltar e apertar de novo em 10 ms) chegava ao Sunshine como um
 aperto só, ou com 6 ms, e o jogo, que lê o controle a cada 16,7 ms, não via. Dois pontos:
 - o **shell** lia o estado do botão a cada 8 ms (`pad_flush` em `scr_brp.c`); com a CPU cheia, um
-  apertar-e-soltar inteiro entre duas leituras sumia. `gamepad_buttons_take` (`gamepad.c`) guarda
-  o que aconteceu entre as leituras: um toque vem apertado uma vez, um soltar-e-apertar vem solto
-  uma vez. Medido: 27 apertos do B no FOSTON chegavam 24 ao PC; depois, **34 de 34** com os
-  mesmos tempos;
-- o **relay** (`padhold.h`, em `send_pad` do `bfrp.c`; teste em `src/ui/tests/test_padhold.c`) recebe linhas amontoadas: cada botão fica pelo menos 34 ms
-  apertado e 34 ms solto (duas leituras a 60 qps), e um aperto que chega durante a espera é
-  guardado, não perdido. Medido no PC: o menor aperto passou de 0 ms para 34 ms.
+  apertar-e-soltar inteiro entre duas leituras sumia. `gamepad_buttons_take` (`gamepad.c`, com a
+  fila de `core/tapqueue.h`) entrega a cada leitura a próxima troca de cada botão, na ordem, e
+  guarda o resto para a seguinte. Medido: 27 apertos do B no FOSTON chegavam 24 ao PC; depois,
+  **34 de 34** com os mesmos tempos;
+- o **relay** (`padhold.h`, em `send_pad` do `bfrp.c`; teste em `src/ui/tests/test_padhold.c`)
+  recebe linhas amontoadas: cada botão tem uma fila de trocas que sai na ordem, com pelo menos
+  34 ms em cada estado (duas leituras a 60 qps). Medido no PC: o menor aperto passou de 0 ms para
+  34 ms.
 
 ## Prioridade (CPU)
 

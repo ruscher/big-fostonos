@@ -41,13 +41,15 @@ Medidas jogando Streets of Rage 4 (PC com Sunshine 2026.914, KWin 6.8).
 ao Sunshine juntos: B apertado 81–232 ms no FOSTON chegava com 6 e 10 ms, e B apertado de novo
 10 ms depois de soltar chegava como um aperto só. O jogo lê o controle a cada 16,7 ms e perdia o
 botão.
-- **Relay** (`padhold.h`, usado por `send_pad` em `bfrp.c`): cada botão fica pelo menos 34 ms
-  apertado e 34 ms solto (duas leituras a 60 qps); um aperto que chega durante a espera é guardado
-  e enviado depois. Os casos medidos estão em `src/ui/tests/test_padhold.c` (`make -C src/ui test`).
-- **Shell** (`gamepad_buttons_take`, `scr_brp.c`): a tela lia o estado a cada 8 ms e perdia um
-  apertar-e-soltar inteiro entre duas leituras. Agora um toque vem apertado uma vez e um
-  soltar-e-apertar vem solto uma vez; fora da sessão o que acumulou é descartado (o toque do menu
-  não vira aperto no PC).
+- **Relay** (`padhold.h`, usado por `send_pad` em `bfrp.c`): cada botão tem uma fila de trocas;
+  toda mudança que chega entra na fila e sai na ordem, com o botão pelo menos 34 ms em cada estado
+  (duas leituras a 60 qps). Um aperto longo isolado passa sem atraso; apertar e soltar duas vezes
+  de uma vez sai como dois apertos espaçados. Os casos estão em `src/ui/tests/test_padhold.c`
+  (`make -C src/ui test`).
+- **Shell** (`gamepad_buttons_take`, `core/tapqueue.h`, `scr_brp.c`): a tela lia o estado a cada
+  8 ms e perdia um apertar-e-soltar inteiro entre duas leituras. Agora cada leitura entrega a
+  próxima troca de cada botão, na ordem, e o resto fica para a leitura seguinte; fora da sessão o
+  que acumulou é descartado (o toque do menu não vira aperto no PC).
 - Medido no controle virtual do PC: menor aperto de 0 ms para 34 ms; 27 apertos do B no FOSTON
   chegavam 24, depois **34 de 34** com os mesmos tempos.
 
