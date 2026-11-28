@@ -92,7 +92,7 @@ HSRC="$R/src/remoteplay/bfrp.c $R/src/remoteplay/relay.c $W/gs/client.c $W/gs/ht
  $C/enet/peer.c $C/enet/protocol.c $C/enet/unix.c $C/nanors/rs.c $C/nanors/deps/obl/oblas_common.c \
  $C/nanors/deps/obl/oblas_lite.c"
 # shellcheck disable=SC2086,SC2046   # listas de fontes e a saída do pkg-config: divididas de propósito
-gcc -O2 -pipe -D_GNU_SOURCE -DBFRP_RELAY -DHAS_SOCKLEN_T -DHAS_POLL=1 -DHAS_FCNTL=1 -DHAS_IOCTL=1 -DHAS_GETADDRINFO=1 \
+gcc -O2 -g -pipe -D_GNU_SOURCE -DBFRP_RELAY -DHAS_SOCKLEN_T -DHAS_POLL=1 -DHAS_FCNTL=1 -DHAS_IOCTL=1 -DHAS_GETADDRINFO=1 \
     -DHAS_GETNAMEINFO=1 -DHAS_INET_PTON=1 -DHAS_INET_NTOP=1 -DHAS_MSGHDR_FLAGS=1 -DNDEBUG -Wno-deprecated-declarations \
     -I"$R/src/remoteplay" -I"$W/gs" -I"$C/src" -I"$C/enet/include" -I"$C/nanors" -I"$C/nanors/deps" -I"$C/nanors/deps/obl" \
     $(pkg-config --cflags libavcodec libswscale opus liblz4) $HSRC -o "$W/bfrp-relay" \

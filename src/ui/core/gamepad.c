@@ -4,6 +4,7 @@
  */
 #define _DEFAULT_SOURCE
 #include "gamepad.h"
+#include "tapqueue.h"
 #include "hwkbd.h"
 #include "btstat.h"
 #include "osd.h"
@@ -51,6 +52,8 @@ typedef struct {
     int16_t rawa[GP_NABS];      /* eixos crus normalizados (-1000..1000), por código */
     int8_t hat[4][2];           /* direcionais: x, y (-1, 0, 1) */
     bool btn[PC__NBTN];
+    uint8_t tapq[PC__NBTN];     /* trocas ainda não entregues a gamepad_buttons_take (tapqueue.h) */
+    bool taken[PC__NBTN];       /* o que gamepad_buttons_take entregou da última vez */
     int16_t ax[PC__NAXIS];
     bool trig[2];               /* gatilhos como botões (volume) */
     uint32_t events;
@@ -458,6 +461,7 @@ static void recompute(pad_t *p)
     for(int t = 0; t < PC__NBTN; t++)
         if(nb[t] != p->btn[t]) {
             p->btn[t] = nb[t];
+            tapq_change(&p->tapq[t]);
             on_button(p, t, nb[t]);
             if(!p->used) return;                       /* a ação pode ter tirado o controle */
         }
@@ -548,6 +552,14 @@ void gamepad_event(int slot, uint16_t type, uint16_t code, int32_t value)
 }
 
 /* ============================================================ SC Controller */
+
+bool gamepad_buttons_take(int slot, bool out[PC__NBTN])
+{
+    if(slot < 0 || slot >= GAMEPAD_MAX || !pads[slot].used) return false;
+    pad_t *p = &pads[slot];
+    for(int t = 0; t < PC__NBTN; t++) out[t] = tapq_take(&p->taken[t], &p->tapq[t]);
+    return true;
+}
 
 bool gamepad_info(int slot, gp_info_t *out)
 {

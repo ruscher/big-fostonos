@@ -14,7 +14,7 @@ VARIANT   ?= sim
 JOBS      ?= $(shell nproc 2>/dev/null || echo 2)
 BUILD     := build/$(VARIANT)
 BIN       := $(BUILD)/bigfoston-shell
-VERSION   := 0.6.5
+VERSION   := 0.6.6
 
 LVGL_DIR  := third_party/lvgl
 # LVGL e nanosvg não vão no git: num checkout novo, baixa os dois (SHA-256 conferido) antes de
@@ -229,6 +229,9 @@ test:
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fsanitize=address,undefined -g -I. \
 		tests/test_fbmark.c -o build/test/test_fbmark
 	./build/test/test_fbmark
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -fsanitize=address,undefined -g -I. \
+		tests/test_padhold.c -o build/test/test_padhold
+	./build/test/test_padhold
 
 run: sim
 	./build/sim/bigfoston-shell

@@ -167,7 +167,11 @@ static char phys_name[64];
 
 static void pad_flush(bool force)
 {
-    if(!streaming) return;
+    if(!streaming) {                                     /* o toque do menu não vira aperto no PC */
+        bool drop[PC__NBTN];
+        if(gamepad_count() > 0) gamepad_buttons_take(0, drop);
+        return;
+    }
     int b = 0, lt = 0, rt = 0, lx = 0, ly = 0, rx = 0, ry = 0;
     phys_name[0] = 0;
     gp_info_t gi;
@@ -178,7 +182,9 @@ static void pad_flush(bool force)
             { PC_START, F_START }, { PC_LSTICK, F_LS }, { PC_RSTICK, F_RS }, { PC_LSHOULDER, F_LB },
             { PC_RSHOULDER, F_RB }, { PC_DPUP, F_UP }, { PC_DPDOWN, F_DOWN }, { PC_DPLEFT, F_LEFT },
             { PC_DPRIGHT, F_RIGHT } };
-        for(unsigned i = 0; i < sizeof m / sizeof m[0]; i++) if(gi.btn[m[i].pc]) b |= m[i].f;
+        bool pb[PC__NBTN];                               /* sem perder o toque entre duas leituras */
+        if(!gamepad_buttons_take(0, pb)) memcpy(pb, gi.btn, sizeof pb);
+        for(unsigned i = 0; i < sizeof m / sizeof m[0]; i++) if(pb[m[i].pc]) b |= m[i].f;
         int ax = gi.ax[PC_LEFTX - PC__NBTN], ay = gi.ax[PC_LEFTY - PC__NBTN];
         lx = ax * 32767 / 1000; ly = -ay * 32767 / 1000;    /* Moonlight: para cima é + */
         rx = gi.ax[PC_RIGHTX - PC__NBTN] * 32767 / 1000;
@@ -209,6 +215,11 @@ static void on_refresh(lv_event_t *e)
     host_ok = host_paired = apps_done = false;
     napps = 0;
     host_err[0] = 0;
+    if(from_eng < 0) {                                   /* o motor saiu: um novo, com o relay de novo */
+        eng_stop();
+        char err[sizeof host_err] = "";
+        if(!eng_start(err, sizeof err)) snprintf(host_err, sizeof host_err, "%s", err[0] ? err : "motor");
+    }
     eng_send("HOST %s", HOST_USB);
     show(V_HOME);
 }
@@ -687,6 +698,10 @@ static void build(void)
 
 static void on_line(char *l)
 {
+    /* a sessão acabou: o motor já tratou o SHOW 0 (vem antes na fila dele), mas um quadro
+     * desenhado entre o redesenho da tela e o SHOW 0 ficava por cima da interface; redesenha */
+    if(view != V_VIDEO && (!strncmp(l, "STOPPED", 7) || !strncmp(l, "TERMINATED", 10)))
+        lv_obj_invalidate(lv_screen_active());
     if(!strcmp(l, "READY")) { eng_send("HOST %s", HOST_USB); return; }
     if(!strncmp(l, "HOST ", 5)) {
         int paired = 0, busy = 0, cur = 0;

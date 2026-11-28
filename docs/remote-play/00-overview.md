@@ -24,7 +24,8 @@ Estados usados aqui:
 | Imagem sem faixas pretas (corte automático + cobrir sem esticar) e lupa −/+ (100–400 %) | **FUNCIONANDO NO APARELHO** | [06](06-video-decoding.md) |
 | Som do computador (Opus em ponto fixo, mono 24 kHz, 15 % de CPU) | **FUNCIONANDO NO APARELHO** (placa tocando; ouvir é com você) | [10](10-audio.md) |
 | Modo performance durante a sessão ("Ligar sozinho na imagem do Big Remote Play") | **FUNCIONANDO NO APARELHO**: GPS e tarefas pausados, interface com prioridade | — |
-| Controle Bluetooth físico repassado ao PC | IMPLEMENTADO, NÃO TESTADO | — |
+| Controle Bluetooth físico repassado ao PC | **FUNCIONANDO NO APARELHO** (DualShock 4, 28/11/2026): nenhum toque perdido, 34 de 34 apertos do B com os mesmos tempos | [34](34-relay-pc.md) |
+| Relay do PC (o PC decodifica, o FOSTON só desenha) | **FUNCIONANDO NO APARELHO**: ~39 qps desenhados com o controle no HID do kernel; volta sozinho quando o relay reinicia | [34](34-relay-pc.md) |
 | Controle na tela e "Somente controle" | **REMOVIDOS** a pedido (24/11/2026); o histórico está em [14](14-virtual-button-engine.md) e [22](22-controller-only-mode.md) | — |
 | Multitouch verdadeiro no painel original | **INVIÁVEL** | [11](11-touchscreen-analysis.md) |
 | Áudio, teclado, troca de monitor no app, combos, layouts | PENDENTE | [31](31-known-limitations.md) |

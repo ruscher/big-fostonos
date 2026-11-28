@@ -76,13 +76,40 @@ enquanto faz outra coisa:
 8,4% (inclui o `hid-playstation`, que roda no contexto de quem escreve no `uhid`) e a fila do
 HCI 1,2%. A UART do Bluetooth recebe ~450 interrupções/s (~13 bytes cada).
 
+## HID no kernel e botões sem perder toque (28/11/2026, Big Remote Play)
+
+Jogando pelo Big Remote Play (relay no PC, Streets of Rage 4), a CPU ficava 100% ocupada:
+`bfrp` 58%, **`bluetoothd` 20%** (198 tiques em 10 s, mais que os 8,4% acima: o controle em uso
+manda mais relatórios) e o shell 12%.
+
+| Mudança | Antes | Depois |
+|---|---|---|
+| `UserspaceHID=false` (`/etc/bluetooth/input.conf`): o HID do controle no kernel (`hidp`), sem passar pelo `bluetoothd` | `bluetoothd` 20% | **0,1%** (7 tiques em 60 s) |
+| | imagem desenhada ~15 qps | **~39 qps** (média de 75 amostras do relay, cena de jogo) |
+
+O `hid-playstation` registra o controle igual nos dois caminhos (as mesmas mensagens no `dmesg`,
+mesmo GUID `...cc09000000810000`, mesmo mapa), e a correção do descritor do `bfbt-agent` continua
+valendo: o kernel recebe o descritor do próprio `bluetoothd`.
+
+**Toque perdido.** O B martelado (soltar e apertar de novo em 10 ms) chegava ao Sunshine como um
+aperto só, ou com 6 ms, e o jogo, que lê o controle a cada 16,7 ms, não via. Dois pontos:
+- o **shell** lia o estado do botão a cada 8 ms (`pad_flush` em `scr_brp.c`); com a CPU cheia, um
+  apertar-e-soltar inteiro entre duas leituras sumia. `gamepad_buttons_take` (`gamepad.c`, com a
+  fila de `core/tapqueue.h`) entrega a cada leitura a próxima troca de cada botão, na ordem, e
+  guarda o resto para a seguinte. Medido: 27 apertos do B no FOSTON chegavam 24 ao PC; depois,
+  **34 de 34** com os mesmos tempos;
+- o **relay** (`padhold.h`, em `send_pad` do `bfrp.c`; teste em `src/ui/tests/test_padhold.c`)
+  recebe linhas amontoadas: cada botão tem uma fila de trocas que sai na ordem, com pelo menos
+  34 ms em cada estado (duas leituras a 60 qps). Medido no PC: o menor aperto passou de 0 ms para
+  34 ms.
+
 ## Prioridade (CPU)
 
 Com um controle conectado (`perfui.c`, `prio_update`):
 - a **thread da interface** fica com nice −5: o cursor e as teclas do controle passam na frente
   de tarefas comuns;
-- o **`bluetoothd`** fica com nice −10, reaplicado a cada 5 s, caso ele reinicie. É ele que lê o
-  canal HID do Bluetooth e entrega ao kernel pelo `uhid`, então está no caminho de cada botão.
+- o **`bluetoothd`** fica com nice −10, reaplicado a cada 5 s, caso ele reinicie. Com o HID no
+  kernel (acima) ele saiu do caminho de cada botão, mas ainda faz a conexão e o pareamento.
 
 A fila de trabalho do HCI no kernel já é de alta prioridade (`WQ_HIGHPRI`).
 
