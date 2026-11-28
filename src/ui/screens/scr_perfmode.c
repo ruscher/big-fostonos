@@ -21,20 +21,7 @@ static lv_timer_t *st_t;
 
 /* resumo do que o modo faz agora: o que está pausado e o que ficou por estar conectado (quem
  * decodifica a TV fica no rodapé da própria TV: abrir Ajustes fecha a TV) */
-static void add_name(char *b, size_t n, const char *name)
-{
-    size_t k = strlen(b);
-    snprintf(b + k, n - k, "%s%s", k ? ", " : "", name);
-}
-
-static void names_of(unsigned g, char *b, size_t n)
-{
-    b[0] = 0;
-    if(g & PM_SVC_GPS) add_name(b, n, "GPS");
-    if(g & PM_SVC_BT) add_name(b, n, "Bluetooth");
-    if(g & PM_SVC_PHONE) add_name(b, n, tr(S_PERFM_PHONE));
-    if(g & PM_SVC_CRON) add_name(b, n, tr(S_PERFM_TASKS));
-}
+#define names_of perfui_svc_names
 
 static void summary(pm_state_t s, char *out, size_t n)
 {

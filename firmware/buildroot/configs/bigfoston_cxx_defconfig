@@ -1,0 +1,17 @@
+# BigFoston C++: só o toolchain com C++ (firmware/build/out-cxx), para o que precisa de g++ e fica
+# no cartão: a fdk-aac do player da TV (tools/bigfoston/build-tv.sh). Mesmo processador, GCC e
+# musl do firmware (bigfoston_fs707dc_defconfig); não gera imagem.
+#   firmware/build.sh --config bigfoston_cxx_defconfig --out out-cxx -- toolchain
+BR2_arm=y
+BR2_arm1176jz_s=y
+BR2_ARM_EABI=y
+BR2_ARM_INSTRUCTIONS_ARM=y
+BR2_TARGET_OPTIMIZATION="-mno-unaligned-access"
+BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_BIGFOSTON_PATH)/patches"
+BR2_TOOLCHAIN_BUILDROOT_MUSL=y
+BR2_TOOLCHAIN_BUILDROOT_CXX=y
+BR2_KERNEL_HEADERS_6_12=y
+BR2_INIT_NONE=y
+BR2_SYSTEM_BIN_SH_NONE=y
+# BR2_PACKAGE_BUSYBOX is not set
+# BR2_TARGET_ROOTFS_TAR is not set

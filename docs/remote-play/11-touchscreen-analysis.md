@@ -19,7 +19,7 @@ Fonte: [../touchscreen-driver.md](../touchscreen-driver.md) e o driver
 | 2. Detecção limitada de gestos (Z1/Z2 indicando 2 contatos) | Talvez como indício, sem posição; **não implementado** e não usado como entrada |
 | 3. Simulação por software | Não: uma posição média não pode virar dois botões |
 | 4. Controle com estados persistentes | **Sim:** é o que o app faz ([14](14-virtual-button-engine.md)) |
-| 5. Digitalizador capacitivo novo | Estudo de hardware, opcional ([32](32-physical-multitouch-upgrade.md), pendente) |
+| 5. Digitalizador capacitivo novo | Estudo de hardware, opcional (pendente, ainda sem documento) |
 | Controle Bluetooth | **Sim:** vários botões de verdade ao mesmo tempo |
 
 O app **não** trata posições médias ou leituras instáveis como dois contatos.

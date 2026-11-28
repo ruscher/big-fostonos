@@ -119,7 +119,8 @@ falhas do player foram corrigidas:
 Entrou também a escada de decodificação. Ver
 [../energia-e-desempenho/03-tv-fluidez.md](../energia-e-desempenho/03-tv-fluidez.md).
 
-O ffmpeg e a fdk-aac são compilados à parte (firmware/build/ffmpeg-tv, toolchain `out-cxx` com C++)
+O ffmpeg e a fdk-aac são compilados à parte (firmware/build/ffmpeg-tv, toolchain `out-cxx` com C++,
+de `firmware/buildroot/configs/bigfoston_cxx_defconfig`; os passos estão no começo de `tools/bigfoston/build-tv.sh`)
 e o player fica no cartão: a memória interna não tem espaço para eles.
 
 **Tela cheia (24/11/2026):** abria e fechava na hora. O laço saía dela se a camada de cima tivesse

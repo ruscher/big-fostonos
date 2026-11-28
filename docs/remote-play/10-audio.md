@@ -23,7 +23,8 @@ O motor manda `ASTATS pacotes perdidos secou alto-falante` a cada 2 s.
 | CPU da decodificação, mono a 24 kHz | **15,2 %** |
 | `/dev/dsp` durante a sessão | aberto pelo `bfrp`, placa em `RUNNING` |
 
-A biblioteca é compilada à parte (`firmware/build/opus-arm`), conferida pelo SHA-256 do pacote
+A biblioteca é compilada à parte (`firmware/build/opus-arm`, pelo próprio `build-remoteplay.sh`
+quando falta), conferida pelo SHA-256 do pacote
 `opus` do Buildroot:
 
 ```

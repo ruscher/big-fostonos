@@ -5,12 +5,14 @@
 #   tools/bigfoston/build-remoteplay.sh        -> firmware/build/remoteplay/bfrp e o pacote
 #                                                 pkg/apps/big-remote-play.bfapp (com o motor)
 #
+# Antes: tools/bigfoston/build-tv.sh (o FFmpeg mínimo) e a libopus, que este script compila sozinho
+# do pacote-fonte do Buildroot (firmware/build/dl/opus, ver build-tv.sh para baixar).
 # Usa o toolchain e a staging do navegador (firmware/build/out-web: libcurl, OpenSSL, expat):
 # as mesmas bibliotecas que já vão no cartão em BigFoston/web/lib. O bfrp vai para o cartão em
 # BigFoston/remoteplay/bfrp (docs/remote-play).
-# Fontes: firmware/build/dl/moonlight/moonlight-embedded (git clone --recursive de
-# github.com/moonlight-stream/moonlight-embedded). Fica de fora a descoberta por avahi
-# (discover.c): pela rede USB o PC é 192.168.7.1, e o endereço pode ser digitado.
+# Fontes: firmware/build/dl/moonlight/moonlight-embedded, clonado e posto no commit ML_COMMIT
+# (abaixo) pelo próprio script, de github.com/moonlight-stream/moonlight-embedded. Fica de fora a
+# descoberta por avahi (discover.c): pela rede USB o PC é 192.168.7.1, e o endereço pode ser digitado.
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 R=$(cd "$(dirname "$0")/../.." && pwd)
@@ -23,7 +25,17 @@ CC=$OW/host/bin/arm-buildroot-linux-musleabi-gcc
 SR=$OW/host/arm-buildroot-linux-musleabi/sysroot
 W=$B/remoteplay
 [ -x "$CC" ] || { echo "falta o toolchain $OW (Buildroot bigfoston_web_defconfig)"; exit 1; }
-[ -f "$M/libgamestream/client.c" ] || { echo "falta $M (git clone --recursive moonlight-embedded)"; exit 1; }
+ML_COMMIT=33142e58ebd576085a076f4ce24881d20b3c4ef5   # moonlight-embedded de 11/11/2026 (moonlight-common-c e44e429)
+if [ ! -f "$M/libgamestream/client.c" ]; then
+    mkdir -p "$(dirname "$M")"
+    git clone -q https://github.com/moonlight-stream/moonlight-embedded.git "$M"
+fi
+# a versão conferida: um clone em outro commit troca o bfrp sem ninguém ver
+if [ "$(git -C "$M" rev-parse HEAD)" != "$ML_COMMIT" ]; then
+    git -C "$M" fetch -q origin "$ML_COMMIT" 2>/dev/null || true
+    git -C "$M" checkout -q "$ML_COMMIT" || { echo "não deu para usar o moonlight-embedded $ML_COMMIT em $M"; exit 1; }
+fi
+git -C "$M" submodule update -q --init --recursive
 mkdir -p "$W/gs"
 
 # libgamestream: o nome do aparelho no pedido de pareamento ("roth" é ignorado pelo Big Remote
@@ -46,7 +58,20 @@ CFLAGS="-O2 -march=armv6 -mfloat-abi=soft -pipe -D_GNU_SOURCE -DHAS_SOCKLEN_T -D
 FF=$B/ffmpeg-tv/inst                      # FFmpeg mínimo da TV (build-tv.sh): o mesmo H.264
 [ -f "$FF/lib/libavcodec.a" ] || { echo "falta $FF (tools/bigfoston/build-tv.sh)"; exit 1; }
 OP=$B/opus-arm/inst                       # libopus 1.6.1 em ponto fixo (som do Sunshine), ver docs/remote-play/10
-[ -f "$OP/lib/libopus.a" ] || { echo "falta $OP: configure da opus-1.6.1 com --enable-fixed-point --disable-intrinsics"; exit 1; }
+if [ ! -f "$OP/lib/libopus.a" ] || [ ! -f "$OP/include/opus/opus.h" ]; then
+    # o pacote-fonte do Buildroot (conferido pelo hash dele): make opus-source no Buildroot
+    OT=$B/dl/opus/opus-1.6.1.tar.gz
+    [ -f "$OT" ] || { echo "falta $OT (make opus-source no Buildroot)"; exit 1; }
+    rm -rf "$B/opus-arm/opus-1.6.1"
+    mkdir -p "$B/opus-arm"
+    tar -C "$B/opus-arm" -xzf "$OT"
+    (cd "$B/opus-arm/opus-1.6.1" &&
+     ./configure --host=arm-buildroot-linux-musleabi CC="$CC" CFLAGS="-O2" \
+         --prefix="$OP" --enable-static --disable-shared \
+         --enable-fixed-point --disable-intrinsics --disable-doc --disable-extra-programs > ../configure.log &&
+     make -j"$(nproc 2>/dev/null || echo 4)" install > ../make.log) ||
+        { rm -rf "$OP"; echo "a libopus não compilou: $B/opus-arm/*.log"; exit 1; }   # sem instalação pela metade
+fi
 INC="-I$OP/include -I$FF/include -I$R/src/remoteplay -I$W/gs -I$C/src -I$C/enet/include -I$C/nanors -I$C/nanors/deps -I$C/nanors/deps/obl \
  -I$SR/usr/include -I$R/src/ui/core"
 SRC="$R/src/remoteplay/bfrp.c $R/src/remoteplay/video.c $R/src/remoteplay/audio.c $R/src/remoteplay/client.c $R/src/ui/core/lz4dec.c $W/gs/client.c $W/gs/http.c $W/gs/mkcert.c $W/gs/xml.c \

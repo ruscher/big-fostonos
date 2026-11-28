@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #define CTL_DIR  "/run/bigfoston"
@@ -90,6 +91,10 @@ static void command(char *l)
         perf_reset();
     }
     else if(!strcmp(l, "app map")) nav_go(SCR_MAP, 0);
+    else if(!strncmp(l, "hang ", 5)) {             /* teste do vigia (watchdog.c): para o laço N s */
+        struct timespec ts = { atoi(l + 5), 0 };
+        if(ts.tv_sec > 0 && ts.tv_sec <= 120) while(nanosleep(&ts, &ts) != 0) {}
+    }
     else if(!strncmp(l, "mapdemo ", 8)) {          /* passos de teste do Big GPS (scr_map_demo) */
         if(nav_current().scr == SCR_MAP) scr_map_demo(atoi(l + 8));
     }

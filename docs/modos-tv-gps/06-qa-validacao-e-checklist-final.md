@@ -22,7 +22,7 @@ JavaScript novos; os equivalentes para C e shell são os abaixo.
 | Shell | `shellcheck` 0.11 em `S10bigfoston`, `build-tv.sh`, `build-remoteplay.sh`, `tv-relay-install.sh` | **0 avisos** (4 anteriores no `build-remoteplay.sh`: divisão intencional, agora citada na exceção) |
 | Patch do LVGL | `patch --dry-run` no `lv_obj.c` original | aplica limpo |
 | Revisão automática do PR (CodeRabbit, 10 comentários) | conferidos no código | **10 corrigidos**: busca da TV que não começa (volta aos canais); busca esperando um player travado (agora pelo encerramento com prazo e `SIGKILL`); vários órfãos vigiados ao mesmo tempo; contagem do Iniciar parando se o GPS cai; rota atrasada reabrindo o painel depois de Encerrar; telefone solto com o estado de conexão de 1 s antes; etiqueta escurecendo nas linhas puladas do `bfrp` (e presa no vídeo do Internet ao sumir); milissegundos em 64 bits (estouro com 24,9 dias ligado); `BIGFOSTON_BUILD` relativo; instalador do relay na mesma árvore |
-| `bfrp` e `bftvd` depois das correções | a árvore de toolchain deles não estava disponível | `video.c` com o `-fanalyzer` e os cabeçalhos do Moonlight: **0**; `bftvd.c` checado com os cabeçalhos do FFmpeg do PC. Os binários no cartão são os de antes destas correções |
+| `bfrp` e `bftvd` depois das correções | toolchains refeitos (`out-cxx` de `bigfoston_cxx_defconfig`, `out-web`), fontes do Buildroot conferidas pelo hash, Moonlight fixado no commit `33142e5` | **0 avisos** no código do `bftvd`, `bftv` e `bfrp` (os 13 avisos do log são do próprio FFmpeg); instalados no cartão (os anteriores em `*.27nov`). TV medida com o `bftvd` novo: 30 qps pelo PC, 0 quadros com o diálogo aberto, 92 em 3 s depois do ✕. O `bfrp` não foi exercitado (precisa de uma sessão do Sunshine) |
 
 ## Testes automatizados
 
@@ -59,6 +59,8 @@ JavaScript novos; os equivalentes para C e shell são os abaixo.
 | 14e | Big Remote Play e vídeo em tela cheia do Internet | a etiqueta misturada na imagem | **compilado e instalado (`bfrp` idêntico ao build), não exercitado**: precisa de uma sessão de jogo (Sunshine) ou do navegador pelo PC |
 | 15 | Redesenho na TV, A/B com o binário antigo | menos trabalho | 60 → 7–8 quadros em 20 s; laço p95 24 → 2 ms |
 | 17 | `bftvd` órfão (iniciado pelo SSH, fora do shell, tocando) e abrir o Big GPS | modo GPS desliga a TV | encerrado na abertura do mapa ("tv: player órfão … encerrado"); o `-O` só depois de ele sumir |
+| 18 | Aviso ao entrar num modo (TV, depois TV → mapa) | a etiqueta acende 3 s com o que pausou, depois de pausado | "Modo TV · Pausado: GPS, tarefas" e "Modo GPS · Pausado: tarefas" (celular conectado), de volta à marca d'água; na TV apareceu ~5 s depois de abrir, com o `bfgps` já parado; a TV não pausou o desenho |
+| 19 | Vigia do shell: `hang 60` no canal de controle | o shell é reiniciado | saiu aos 50 s com o código 70 e o motivo no log; voltou sozinho. Pior volta do laço em uso normal: 537 ms |
 | 16 | Logs depois de toda a bateria | sem erro | shell: nenhuma linha nova de erro; kernel: sem OOM, segfault ou trava; 15 reinícios do shell, todos com código 0 (as instalações dos testes) |
 
 ### Como repetir as medidas
@@ -104,4 +106,4 @@ journalctl --user -u bigfoston-tv-relay -f
 | `S10bigfoston` pulando a vez | o shell já cria `/run/bigfoston-quiet`; o script novo está na imagem enviada ao cartão (vale depois de desligar e ligar) |
 | Contagem do Iniciar com rotas alternativas chegando | o roteador não achou alternativas para os destinos do teste; coberto pelo código, não exercitado |
 | Instalação definitiva | imagem nova (shell e `S10bigfoston`) gerada pelo `firmware/build.sh` e enviada por `tools/bigfoston/linux-update.py stage`, conferida no cartão; entra ao desligar e ligar o aparelho. O `bftvd` novo está no cartão (`bftvd.0.6.5` é o anterior) |
-| Busca de canais completa | só começar e cancelar foram exercitados (a lista de canais ficou idêntica); a busca inteira leva 2 min e reescreve a lista |
+| Busca de canais completa | feita até o fim (`busca_fim`, 7 canais achados dentro de casa, contra 15 da lista anterior); a lista anterior foi devolvida depois do teste |
