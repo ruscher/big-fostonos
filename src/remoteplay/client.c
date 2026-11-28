@@ -84,15 +84,25 @@ static int wait_relay(const char *host, int port)
     int rcv = 512 * 1024;
     setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
     setsockopt(s, SOL_SOCKET, SO_RCVBUF, &rcv, sizeof rcv);
+    /* o relay some sem fechar (o PC reiniciou, o cabo saiu): sem resposta em ~5 s, a conexão
+     * cai e o motor volta a esperar, em vez de ficar num socket morto */
+    int idle = 2, intvl = 1, cnt = 3;
+    setsockopt(s, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof one);
+    setsockopt(s, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof idle);
+    setsockopt(s, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof intvl);
+    setsockopt(s, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof cnt);
     return s;
 }
 
 static void say(const char *l) { fputs(l, stdout); fputc('\n', stdout); fflush(stdout); }
 
+static char last_host[128];              /* o relay que voltar precisa saber o servidor de novo */
+
 /* uma linha da tela: o que é só daqui fica, o resto vai ao relay */
 static void from_shell(int s, char *l)
 {
     if(!strncmp(l, "CLIP ", 5)) { video_clip(atoi(l + 5)); return; }
+    if(!strncmp(l, "HOST ", 5)) snprintf(last_host, sizeof last_host, "%s", l);
     if(!strncmp(l, "SHOW ", 5)) video_show(atoi(l + 5));
     if(!strncmp(l, "RECT ", 5)) {
         int x, y, w, h;
@@ -182,6 +192,16 @@ ack:
     proto_send(s, 'Q', NULL, 0);                             /* o próximo quadro pode vir */
 }
 
+/* a conexão com o relay caiu (ele reiniciou, o PC desligou): a tela fica sabendo que a sessão
+ * acabou e o motor volta a esperar o relay, em vez de sair ou ficar num socket morto */
+static void relay_lost(int *s)
+{
+    say("TERMINATED relay");
+    dsp_close();
+    close(*s);
+    *s = -1;
+}
+
 int relay_client_main(const char *host, int port)
 {
     int s = wait_relay(host, port);
@@ -197,6 +217,14 @@ int relay_client_main(const char *host, int port)
     int len = 0;
     if(!rx.buf) { close(s); return -1; }
     for(;;) {
+        if(s < 0) {                                      /* o relay saiu: espera ele voltar */
+            struct pollfd in = { 0, POLLIN, 0 };
+            if(poll(&in, 1, 0) == 1 && (in.revents & (POLLHUP | POLLERR))) break;   /* a tela saiu */
+            s = wait_relay(host, port);
+            if(s < 0) { usleep(500000); continue; }      /* sem a rede USB o bind falha na hora */
+            rx.n = 0;
+            if(last_host[0]) proto_send(s, 'K', last_host, (uint32_t)strlen(last_host));
+        }
         struct pollfd p[2] = { { 0, POLLIN, 0 }, { s, POLLIN, 0 } };
         if(poll(p, 2, 1000) < 0) { if(errno == EINTR) continue; break; }
         if(p[0].revents & (POLLIN | POLLHUP)) {          /* a tela */
@@ -220,9 +248,8 @@ int relay_client_main(const char *host, int port)
             if(len >= (int)sizeof line - 1) len = 0;
         }
         if(p[1].revents & (POLLIN | POLLHUP | POLLERR)) { /* o relay */
-            if(rx.n == rx.cap) break;
-            ssize_t n = read(s, rx.buf + rx.n, rx.cap - rx.n);
-            if(n <= 0) { say("TERMINATED relay"); break; }
+            ssize_t n = rx.n == rx.cap ? -1 : read(s, rx.buf + rx.n, rx.cap - rx.n);
+            if(n <= 0) { relay_lost(&s); continue; }
             rx.n += (size_t)n;
             char type;
             uint8_t *d;
@@ -245,11 +272,11 @@ int relay_client_main(const char *host, int port)
                 memmove(rx.buf, rx.buf + used, rx.n - used);
                 rx.n -= used;
             }
-            if(r < 0) { say("TERMINATED relay"); break; }
+            if(r < 0) relay_lost(&s);
         }
     }
     dsp_close();
-    close(s);
+    if(s >= 0) close(s);
     free(rx.buf);
     return 0;
 }

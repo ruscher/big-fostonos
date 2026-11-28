@@ -32,11 +32,15 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include <errno.h>
+#ifdef BFRP_RELAY
+#include <execinfo.h>                                    /* a pilha de uma queda (on_crash) */
+#endif
 #include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,6 +55,7 @@
 #include "audio.h"
 #include "relay.h"
 #include "proto.h"
+#include "padhold.h"
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -100,16 +105,41 @@ static int pad_buttons, pad_lt, pad_rt, pad_lx, pad_ly, pad_rx, pad_ry;
 static unsigned char keys_down[256];
 static unsigned char mouse_down[8];
 
-static void send_pad(void)
+/* aperto e intervalo mínimos dos botões (padhold.h): o aperto e a soltura podem chegar juntos */
+static padhold_t pad_hold;
+
+static int64_t mono_ms(void)
 {
-    if(!streaming) return;
-    LiSendMultiControllerEvent(0, 1, pad_buttons, (unsigned char)pad_lt, (unsigned char)pad_rt,
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+
+/* ms até a próxima mudança adiada (aperto ou soltura), ou -1 sem nenhuma */
+static int send_pad(void)
+{
+    if(!streaming) { padhold_reset(&pad_hold); return -1; }   /* nada guardado vai para a próxima sessão */
+    int wait;
+    int eff = padhold_step(&pad_hold, pad_buttons, mono_ms(), &wait);
+    LiSendMultiControllerEvent(0, 1, (short)eff, (unsigned char)pad_lt, (unsigned char)pad_rt,
                                (short)pad_lx, (short)pad_ly, (short)pad_rx, (short)pad_ry);
+    return wait;
+}
+
+static int pad_wait = -1;                /* send_pad() pediu para ser chamado de novo */
+
+/* nos laços: solta o que completou o aperto mínimo; devolve o prazo para o poll() */
+static int pad_tick(int max_ms)
+{
+    if(pad_wait >= 0 && (pad_wait = send_pad()) < 0) pad_wait = -1;
+    return pad_wait >= 0 && pad_wait < max_ms ? pad_wait + 1 : max_ms;
 }
 
 static void release_all(void)
 {
     pad_buttons = pad_lt = pad_rt = pad_lx = pad_ly = pad_rx = pad_ry = 0;
+    padhold_reset(&pad_hold);                           /* soltar tudo é já, sem aperto mínimo */
+    pad_wait = -1;
     if(!streaming) { memset(keys_down, 0, sizeof keys_down); memset(mouse_down, 0, sizeof mouse_down); return; }
     send_pad();
     for(int k = 0; k < 256; k++)
@@ -154,9 +184,16 @@ static void ar_cleanup(void) { audio_close(); }
 
 static void cl_stage_starting(int s) { out("STAGE %s", LiGetStageName(s)); }
 static void cl_stage_failed(int s, int err) { out("FAILED %s %d", LiGetStageName(s), err); }
-static void cl_started(void) { streaming = true; out("STARTED"); }
+/* a conexão desta sessão já abriu: um fim avisado antes disso é da sessão anterior (o Sunshine
+ * encerrando a que ficou aberta chegou no meio da abertura da nova, que seguiu normal, e a tela
+ * mostrava "A sessão terminou"); se a nova falhar, LiStartConnection devolve o erro */
+static volatile bool conn_up;
+
+static void cl_started(void) { conn_up = streaming = true; out("STARTED"); }
 static void cl_terminated(int err)
 {
+    if(!conn_up) { fprintf(stderr, "bfrp: fim %d antes de abrir, ignorado\n", err); return; }
+    conn_up = false;
     streaming = false;                                   /* o host já solta os controles ao cair */
     memset(keys_down, 0, sizeof keys_down);
     memset(mouse_down, 0, sizeof mouse_down);
@@ -288,6 +325,7 @@ static void cmd_start(int app, int w, int h, int fps, int kbps, int video, int v
     cl.connectionTerminated = cl_terminated;
     cl.logMessage = cl_log;
     cl.connectionStatusUpdate = cl_status;
+    conn_up = false;
     r = LiStartConnection(&server.serverInfo, &cfg, &cl, &dr, &ar, NULL, 0, NULL, 0);
     if(r != 0) { streaming = false; out("ERR conexão %d", r); }
 }
@@ -296,7 +334,7 @@ static void cmd_stop(void)
 {
     release_all();
     LiStopConnection();
-    streaming = false;
+    conn_up = streaming = false;
     video_close();
     out("STOPPED");
 }
@@ -324,7 +362,7 @@ static void command(char *l)
             pad_buttons = b & 0xffff; pad_lt = clamp(lt, 0, 255); pad_rt = clamp(rt, 0, 255);
             pad_lx = clamp(lx, -32768, 32767); pad_ly = clamp(ly, -32768, 32767);
             pad_rx = clamp(rx, -32768, 32767); pad_ry = clamp(ry, -32768, 32767);
-            send_pad();
+            pad_wait = send_pad();
         }
     }
     else if(!strcmp(l, "KEY")) {
@@ -388,7 +426,7 @@ static void serve(int c)
     time_t last = 0;
     while(rx.buf) {
         struct pollfd p = { c, POLLIN, 0 };
-        int pr = poll(&p, 1, 1000);
+        int pr = poll(&p, 1, pad_tick(1000));
         if(pr < 0 && errno == EINTR) continue;
         if(pr > 0) {
             if(rx.n == rx.cap) break;
@@ -456,9 +494,28 @@ static int connect_foston(const char *addr, int port)
     return s;
 }
 
+/* uma queda do relay deixa a pilha no registro do serviço (journalctl --user -u
+ * bigfoston-brp-relay): o PC não guarda core (core_pattern) e uma queda no fim de uma sessão
+ * sem vídeo (28/11/2026) não deixou pista; endereços com addr2line -e bfrp-relay */
+static void on_crash(int sig)
+{
+    void *bt[48];
+    int n = backtrace(bt, 48);
+    static const char head[] = "relay: queda, pilha:\n";
+    ssize_t r = write(2, head, sizeof head - 1);
+    (void)r;
+    backtrace_symbols_fd(bt, n, 2);
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 int main(int argc, char **argv)
 {
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGSEGV, on_crash);
+    signal(SIGBUS, on_crash);
+    signal(SIGABRT, on_crash);
+    signal(SIGFPE, on_crash);
     const char *addr = "192.168.7.2";                    /* o FOSTON pela rede USB */
     for(int i = 1; i + 1 < argc; i++) {
         if(!strcmp(argv[i], "--keys")) snprintf(key_dir, sizeof key_dir, "%s", argv[++i]);
@@ -492,7 +549,7 @@ int main(int argc, char **argv)
     int len = 0;
     for(;;) {
         struct pollfd pf = { 0, POLLIN, 0 };
-        int pr = poll(&pf, 1, 2000);
+        int pr = poll(&pf, 1, pad_tick(2000));
         if(pr < 0 && errno == EINTR) continue;
         if(pr > 0) {
             ssize_t n = read(0, line + len, sizeof line - 1 - (size_t)len);

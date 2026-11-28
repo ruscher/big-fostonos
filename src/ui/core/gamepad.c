@@ -51,6 +51,8 @@ typedef struct {
     int16_t rawa[GP_NABS];      /* eixos crus normalizados (-1000..1000), por código */
     int8_t hat[4][2];           /* direcionais: x, y (-1, 0, 1) */
     bool btn[PC__NBTN];
+    uint8_t down_n[PC__NBTN], up_n[PC__NBTN];   /* mudanças desde gamepad_buttons_take */
+    bool taken[PC__NBTN];       /* o que gamepad_buttons_take entregou da última vez */
     int16_t ax[PC__NAXIS];
     bool trig[2];               /* gatilhos como botões (volume) */
     uint32_t events;
@@ -458,6 +460,8 @@ static void recompute(pad_t *p)
     for(int t = 0; t < PC__NBTN; t++)
         if(nb[t] != p->btn[t]) {
             p->btn[t] = nb[t];
+            if(nb[t]) { if(p->down_n[t] < 255) p->down_n[t]++; }
+            else if(p->up_n[t] < 255) p->up_n[t]++;
             on_button(p, t, nb[t]);
             if(!p->used) return;                       /* a ação pode ter tirado o controle */
         }
@@ -548,6 +552,20 @@ void gamepad_event(int slot, uint16_t type, uint16_t code, int32_t value)
 }
 
 /* ============================================================ SC Controller */
+
+bool gamepad_buttons_take(int slot, bool out[PC__NBTN])
+{
+    if(slot < 0 || slot >= GAMEPAD_MAX || !pads[slot].used) return false;
+    pad_t *p = &pads[slot];
+    for(int t = 0; t < PC__NBTN; t++) {
+        bool r = p->btn[t];
+        if(!p->taken[t] && !r && p->down_n[t]) r = true;        /* apertou e soltou no meio */
+        else if(p->taken[t] && r && p->up_n[t]) r = false;      /* soltou e apertou de novo */
+        out[t] = p->taken[t] = r;
+        p->down_n[t] = p->up_n[t] = 0;
+    }
+    return true;
+}
 
 bool gamepad_info(int slot, gp_info_t *out)
 {

@@ -37,7 +37,7 @@ aparelho Linux moderno, com interface de toque própria:
 - 🎵 **Multimídia**, 📖 Livros, 🖼️ Galeria, 📁 Arquivos, 💻 Terminal
 - 🔵 **Bluetooth**: música e internet do celular, **Telefone** com contatos e mensagens
 - 📺 **TV digital** (ISDB-T 1seg) e 📻 **transmissor FM**
-- 🎮 **Big Remote Play**: os jogos do PC na tela do FOSTON
+- 🎮 **Big Remote Play**: os jogos do PC na tela do FOSTON, com som e controle Bluetooth
 - 🔀 **Dual Boot**: a cada ligada, BigFoston OS ou o GPS original
 
 </td>
@@ -180,7 +180,7 @@ flowchart LR
 | [Guia de instalação](docs/instalacao/README.md) | [Big GPS](docs/big-gps/00-visao-geral.md) · [Big GPS 2.0](docs/big-gps-2/00-visao-geral.md) | [Compilar do código](docs/instalacao/11-compilar-do-codigo.md) |
 | [Modelos compatíveis](docs/instalacao/01-modelos-compativeis.md) | [Telefone](docs/phone/00-visao-geral.md) · [TV](docs/tv/00-visao-geral.md) · [FM](docs/fm-radio/00-visao-geral.md) | [Arquitetura do instalador](docs/installer/02-installer-architecture.md) |
 | [Atualizar](docs/instalacao/06-atualizar.md) | [Foston Glass](docs/foston-glass/00-visao-geral.md) · [Grupos de apps](docs/launcher-groups-final-report.md) | [Engenharia reversa](docs/03-engenharia-reversa.md) |
-| [Restaurar](docs/instalacao/05-restaurar-o-original.md) | [Bluetooth](docs/bluetooth-integration) · [Remote Play](docs/remote-play/00-overview.md) | [Desempenho](docs/performance/00-overview.md) |
+| [Restaurar](docs/instalacao/05-restaurar-o-original.md) | [Bluetooth](docs/bluetooth-integration) · [Remote Play](docs/remote-play/00-overview.md) · [relay do PC](docs/remote-play/34-relay-pc.md) | [Desempenho](docs/performance/00-overview.md) · [controle em tempo real](docs/jogos-e-pacotes/07-latencia-e-modo-performance.md) |
 | [Solução de problemas](docs/instalacao/07-solucao-de-problemas.md) | [Dados opcionais](docs/instalacao/10-dados-e-apps-opcionais.md) | [Dual Boot](docs/dual-boot.md) |
 
 ## 📁 Este repositório
